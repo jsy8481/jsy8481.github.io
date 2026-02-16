@@ -1,6 +1,7 @@
 
 import { getAllGuides, getGuideBySlug } from '@/lib/mdx';
 import { notFound } from 'next/navigation';
+import { Metadata } from 'next';
 import AdBanner from '@/components/AdBanner';
 
 export async function generateStaticParams() {
@@ -9,6 +10,35 @@ export async function generateStaticParams() {
         category: guide.category,
         slug: guide.slug,
     }));
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ category: string; slug: string }> }): Promise<Metadata> {
+    const { category, slug } = await params;
+    const guide = await getGuideBySlug(category, slug);
+
+    if (!guide) {
+        return {};
+    }
+
+    const { title, description, date } = guide.meta;
+    const url = `/guides/${category}/${slug}`;
+
+    return {
+        title,
+        description,
+        openGraph: {
+            title,
+            description,
+            url,
+            type: 'article',
+            publishedTime: date,
+        },
+        twitter: {
+            card: 'summary_large_image',
+            title,
+            description,
+        },
+    };
 }
 
 export default async function GuidePage({ params }: { params: Promise<{ category: string; slug: string }> }) {

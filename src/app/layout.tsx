@@ -7,8 +7,20 @@ import Navigation from "@/components/Navigation";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "한국어 기술 가이드",
+  metadataBase: new URL('https://jsy8481.github.io/korean-guide'),
+  title: {
+    template: '%s | 한국어 기술 가이드',
+    default: '한국어 기술 가이드',
+  },
   description: "초보자도 실제 프로젝트에 적용 가능한 상세한 한국어 기술 가이드",
+  openGraph: {
+    title: '한국어 기술 가이드',
+    description: '초보자도 실제 프로젝트에 적용 가능한 상세한 한국어 기술 가이드',
+    url: 'https://jsy8481.github.io/korean-guide',
+    siteName: '한국어 기술 가이드',
+    locale: 'ko_KR',
+    type: 'website',
+  },
 };
 
 export default function RootLayout({

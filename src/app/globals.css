@@ -118,7 +118,7 @@
 
 @layer utilities {
   .prose pre {
-    @apply overflow-x-auto rounded-lg border border-border/40 py-4;
+    @apply overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800 py-4;
     /* Use shiki variables for background */
     background-color: var(--shiki-light-bg) !important;
     color: var(--shiki-light) !important;
@@ -184,7 +184,7 @@
   }
 
   div[data-rehype-pretty-code-fragment] {
-    @apply my-6 rounded-md border border-border/40 text-sm;
+    @apply my-6 rounded-md border border-gray-200 dark:border-gray-800 text-sm;
   }
 
   div[data-rehype-pretty-code-fragment] pre {

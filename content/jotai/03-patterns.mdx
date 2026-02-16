@@ -1,0 +1,184 @@
+---
+title: "03. Jotai 아키텍처 및 패턴"
+description: "이 가이드에서는 대규모 애플리케이션을 위한 Jotai 디렉토리 구조와, 실무에서 자주 사용되는 UI 패턴(모달, 토스트 등)을 다룹니다."
+date: "2026-02-16"
+---
+
+이 가이드에서는 대규모 애플리케이션을 위한 Jotai 디렉토리 구조와, 실무에서 자주 사용되는 UI 패턴(모달, 토스트 등)을 다룹니다.
+
+---
+
+## 아키텍처 및 폴더 구조
+
+프로젝트가 커질수록 "Atom을 어디에 정의해야 할까?"라는 고민이 생깁니다. Jotai는 **Co-location(코로케이션)** 원칙, 즉 "상태는 그것을 사용하는 곳과 최대한 가까이 두라"는 원칙을 권장합니다.
+
+### 1. 기능(Feature) 기반 구조
+
+기능별로 폴더를 나누고, 해당 기능에서만 사용되는 atom은 그 폴더 안에 두는 것이 좋습니다.
+
+```
+src/
+  features/
+    stock-chart/
+      components/
+        Chart.tsx
+      atoms/
+        chart-config.ts  <-- 이 기능에서만 쓰는 Atom
+        chart-data.ts
+      hooks/
+        useChart.ts
+    user-profile/
+      ...
+  shared/
+    atoms/
+      theme.ts       <-- 전역적으로 쓰이는 Atom
+      user-session.ts
+```
+
+- **`features/`**: 특정 기능과 강하게 결합된 atom은 해당 기능 폴더 내에 위치시킵니다.
+- **`shared/atoms/`**: 여러 기능에서 공통으로 사용되는 atom(예: 로그인 세션, 테마 등)만 분리합니다.
+
+### 2. 커스텀 훅 패턴 (Business Logic 분리)
+
+컴포넌트 내부에 `useAtom`, `setAtom`, 비즈니스 로직이 뒤섞이면 코드를 읽기 어려워집니다. **커스텀 훅** 을 사용하여 View와 Logic을 분리하는 패턴을 추천합니다.
+
+```tsx
+// hooks/useStockPrice.ts
+export const useStockPrice = (symbol: string) => {
+  // Atom 구독
+  const [price] = useAtom(stockPriceAtomFamily(symbol));
+  
+  // 액션 (예: 데이터 새로고침)
+  const refresh = useSetAtom(refreshStockAction);
+  
+  // 컴포넌트가 필요로 하는 인터페이스만 반환
+  return { price, refresh };
+};
+
+// Component
+function StockTicker() {
+  const { price, refresh } = useStockPrice('AAPL'); // 깔끔한 사용
+  return <div onClick={refresh}>{price}</div>;
+}
+```
+
+이렇게 하면 컴포넌트는 내부 구현(Jotai를 쓰는지, React Query를 쓰는지)을 몰라도 되며, 유지보수가 쉬워집니다.
+
+---
+
+## 자주 쓰는 UI 패턴
+
+### 1. 전역 모달 관리 (Global Modal)
+
+모달을 구현할 때마다 `isOpen` 상태를 컴포넌트마다 만드는 대신, 전역적으로 관리하면 훨씬 편리합니다.
+
+#### 방법 1: 단순 상태 관리 (열림/닫힘)
+
+```tsx
+// atoms/modal.ts
+export const loginModalOpenAtom = atom(false);
+
+// Header.tsx (여는 곳)
+const setLoginModalOpen = useSetAtom(loginModalOpenAtom);
+<button onClick={() => setLoginModalOpen(true)}>로그인</button>
+
+// LoginModal.tsx (보여주는 곳)
+const [isOpen, setIsOpen] = useAtom(loginModalOpenAtom);
+if (!isOpen) return null;
+return <Dialog>...</Dialog>;
+```
+
+#### 방법 2: 전역 모달 매니저 (추천)
+
+어떤 컴포넌트든 모달로 띄울 수 있는 강력한 패턴입니다.
+
+```tsx
+import { atom, useAtomValue, useSetAtom } from 'jotai';
+import { ReactNode } from 'react';
+
+// 현재 띄울 모달의 내용을 담는 Atom
+const modalContentAtom = atom<ReactNode | null>(null);
+
+// ModalRenderer (App 최상단에 배치)
+export function ModalRenderer() {
+  const content = useAtomValue(modalContentAtom);
+  const setModal = useSetAtom(modalContentAtom);
+  
+  if (!content) return null;
+  
+  return (
+    <div className="modal-overlay" onClick={() => setModal(null)}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        {content}
+      </div>
+    </div>
+  );
+}
+
+// 사용 예시
+function MyComponent() {
+  const setModal = useSetAtom(modalContentAtom);
+  
+  const openConfirm = () => {
+    setModal(
+      <div>
+        <h2>정말 삭제하시겠습니까?</h2>
+        <button onClick={() => setModal(null)}>취소</button>
+      </div>
+    );
+  };
+}
+```
+
+### 2. 토스트 알림 (Toast)
+
+메시지를 보여주고 일정 시간 뒤에 **자동으로 사라지는** 패턴입니다. Atom의 쓰기 함수(`write function`) 안에서 비동기 로직을 처리하는 좋은 예시입니다.
+
+```tsx
+import { atom, useAtom } from 'jotai';
+
+interface Toast {
+  id: number;
+  message: string;
+}
+
+const toastsAtom = atom<Toast[]>([]);
+
+// 토스트 추가 전용 Atom (Write-only)
+export const addToastAtom = atom(
+  null, // 읽기 함수 없음
+  (get, set, message: string) => {
+    const id = Date.now();
+    const newToast = { id, message };
+    
+    // 1. 토스트 추가
+    set(toastsAtom, (prev) => [...prev, newToast]);
+    
+    // 2. 3초 뒤 자동 삭제 logic (Atom 내부에 숨김)
+    setTimeout(() => {
+      set(toastsAtom, (prev) => prev.filter((t) => t.id !== id));
+    }, 3000);
+  }
+);
+
+// ToastContainer.tsx
+export function ToastContainer() {
+  const [toasts] = useAtom(toastsAtom);
+  return (
+    <div className="toast-container">
+      {toasts.map(t => <div key={t.id} className="toast">{t.message}</div>)}
+    </div>
+  );
+}
+```
+
+이제 컴포넌트에서는 `useSetAtom(addToastAtom)`만 가져와서 메시지만 던지면 됩니다.
+
+---
+
+## 레퍼런스
+
+- [Jotai Patterns](https://jotai.org/docs/guides/patterns)
+- [Atomic State Management](https://jotai.org/docs/basics/comparison)
+
+** 이전 장**: [02. Jotai 심화](./02-advanced.md)

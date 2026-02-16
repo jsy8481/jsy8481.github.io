@@ -1,0 +1,104 @@
+---
+title: "07. Zod 통합 (Validation)"
+description: "API의 안정성을 책임지는 스키마 검증 심화 가이드입니다. 에러 메시지 커스터마이징부터 복합 검증 로직까지 다룹니다."
+date: "2026-02-16"
+---
+
+API의 안정성을 책임지는 스키마 검증 심화 가이드입니다. 에러 메시지 커스터마이징부터 복합 검증 로직까지 다룹니다.
+
+---
+
+## 🛠️ 1. 스키마 디테일 설정 (Custom Messages)
+
+자동 생성된 스키마에 **"친절한 에러 메시지"** 를 심어야 합니다. 사용자에게 "Invalid Type"이라고 보여줄 순 없으니까요.
+
+```typescript
+import { createInsertSchema } from 'drizzle-zod';
+
+export const insertUserSchema = createInsertSchema(users, {
+  // 이메일 필드 커스터마이징
+  email: (schema) => schema.email({ message: "올바른 이메일 형식이 아닙니다." }),
+  
+  // 패스워드: 길이 제한 + 메시지
+  password: (schema) => schema.min(8, { message: "비밀번호는 8자 이상이어야 합니다." }),
+  
+  // 선택적 필드 처리 (빈 문자열 -> null 처리 등)
+  bio: (schema) => schema.max(500).optional().or(z.literal('')),
+});
+```
+
+---
+
+## 🛡️ 2. 복합 검증 로직 (Refine)
+
+단일 필드를 넘어, 여러 필드 간의 관계를 검증할 때 `refine`이나 `superRefine`을 사용합니다.
+
+```typescript
+// 비밀번호 확인 로직 추가
+export const signupSchema = insertUserSchema
+  .extend({
+    confirmPassword: z.string(), // DB에는 없지만 폼에는 있는 필드
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "비밀번호가 서로 일치하지 않습니다.",
+    path: ["confirmPassword"], // 에러를 표시할 필드 위치
+  });
+```
+
+---
+
+## ⚙️ 3. 형변환 (Coercion)
+
+Query String이나 Form Data는 모든 게 문자열로 들어옵니다. 이를 알맞은 타입으로 변환합니다.
+
+```typescript
+// GET /posts?page=1&limit=10 
+// -> { page: "1", limit: "10" } (문자열임)
+
+export const paginationSchema = z.object({
+  // 문자열 "1"을 숫자 1로 변환 후 검증
+  page: z.coerce.number().min(1).default(1),
+  limit: z.coerce.number().min(1).max(100).default(10),
+});
+```
+`drizzle-zod`에서도 팩토리 옵션으로 전역 적용이 가능하지만, 보통은 개별 필드에서 `z.coerce`를 쓰는 게 명확합니다.
+
+---
+
+## 🎨 4. 프론트엔드 연동 (React Hook Form)
+
+프론트엔드 개발자가 가장 좋아하는 부분입니다. 백엔드와 스키마를 공유하면 중복 코드가 0이 됩니다.
+
+```typescript
+// apps/client/src/features/auth/SignUpForm.tsx
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { type NewUser, insertUserSchema } from '@repo/schema'; // 공유 패키지
+
+export const SignUpForm = () => {
+  const { register, handleSubmit, formState: { errors } } = useForm<NewUser>({
+    resolver: zodResolver(insertUserSchema), // Zod 스키마 연결
+  });
+
+  const onSubmit = (data: NewUser) => {
+    // data는 이미 검증 완료됨
+    api.post('/users', data);
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <input {...register('email')} />
+      <p>{errors.email?.message}</p> {/* "올바른 이메일 형식이 아닙니다" 출력 */}
+      <button>가입</button>
+    </form>
+  );
+};
+```
+
+---
+
+## 🔗 레퍼런스
+- [Zod Error Handling](https://zod.dev/?id=error-handling)
+- [React Hook Form + Zod](https://react-hook-form.com/get-started#SchemaValidation)
+
+**다음 장**: [08. 타입 추론 (Type Inference)](./08-type-inference.md)

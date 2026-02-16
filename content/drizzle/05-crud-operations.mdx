@@ -1,0 +1,129 @@
+---
+title: "05. CRUD 조작 (CRUD Operations)"
+description: "기본적인 조작을 넘어, 실무에서 마주치는 복잡한 데이터 처리 패턴을 다룹니다."
+date: "2026-02-16"
+---
+
+기본적인 조작을 넘어, 실무에서 마주치는 복잡한 데이터 처리 패턴을 다룹니다.
+
+---
+
+## 🔍 1. 필터 & 연산자 총정리 (Cheat Sheet)
+
+`where` 절에서 사용하는 연산자들입니다. `import { eq, gt, ... } from 'drizzle-orm'` 해서 씁니다.
+
+| 연산자 | SQL 대응 | 사용 예시 | 비고 |
+|--------|----------|-----------|------|
+| `eq` | `=` | `eq(table.id, 1)` | Equal |
+| `ne` | `<>` | `ne(table.status, 'deleted')` | Not Equal |
+| `gt` / `gte` | `>` / `>=` | `gt(table.age, 18)` | Greater Than |
+| `lt` / `lte` | `<` / `<=` | `lt(table.price, 1000)` | Less Than |
+| `like` | `LIKE` | `like(table.name, '%Kim%')` | 부분 일치 (대소문자 구분 O) |
+| `ilike` | `ILIKE` | `ilike(table.name, '%kim%')` | **[PG전용]** 대소문자 무시 매칭 |
+| `inArray` | `IN` | `inArray(table.id, [1, 2, 3])` | 배열에 포함 여부 |
+| `notInArray`| `NOT IN` | `notInArray(table.role, ['admin'])` | |
+| `isNull` | `IS NULL` | `isNull(table.deletedAt)` | |
+| `isNotNull`| `IS NOT NULL`| `isNotNull(table.email)` | |
+| `between` | `BETWEEN` | `between(table.age, 20, 30)` | |
+
+### 논리 연산자 결합
+```typescript
+import { and, or, not } from 'drizzle-orm';
+
+// (age >= 20 AND status = 'active') OR role = 'admin'
+await db.select().from(users).where(
+  or(
+    and(gte(users.age, 20), eq(users.status, 'active')),
+    eq(users.role, 'admin')
+  )
+);
+```
+
+---
+
+## ➕ 2. Insert 심화 (Upsert & Returning)
+
+### Upsert (있으면 수정, 없으면 입력)
+PostgreSQL의 `ON CONFLICT` 구문을 활용합니다.
+
+```typescript
+// ID가 겹치면 이름을 업데이트하고, 아니면 새로 만듦
+await db.insert(users).values({ id: 1, name: 'New Name' })
+  .onConflictDoUpdate({
+    target: users.id, // 충돌 감지할 컬럼 (Unique/PK)
+    set: { name: 'New Name', updatedAt: new Date() }, // 수정할 내용
+  });
+
+// ID가 겹치면 그냥 무시 (아무것도 안 함)
+await db.insert(users).values({ id: 1, ... })
+  .onConflictDoNothing();
+```
+
+### Returning (결과 바로 받기)
+Insert 뿐만 아니라 Update, Delete에서도 됩니다!
+
+```typescript
+// 삭제된 유저 정보를 반환받음 (로그 남길 때 유용)
+const [deletedUser] = await db.delete(users)
+  .where(eq(users.id, 1))
+  .returning({ 
+    deletedId: users.id, 
+    deletedEmail: users.email 
+  });
+```
+
+---
+
+## ✏️ 3. Update 심화 (Atomic Increments)
+
+"조회수 +1" 같은 기능 만들 때, 값을 읽어와서 +1 하고 다시 저장하면 동시성 문제가 생깁니다. DB에서 직접 연산하세요.
+
+```typescript
+import { sql } from 'drizzle-orm';
+
+// 조회수 = 현재 조회수 + 1 (Atomic)
+await db.update(posts)
+  .set({ 
+    views: sql`${posts.views} + 1`,
+    updatedAt: new Date(),
+  })
+  .where(eq(posts.id, 5));
+```
+
+---
+
+## 🚛 4. 대량 조작 (Batch Operations)
+
+수만 건의 데이터를 처리할 때는 네트워크 왕복(Round Trip)을 줄여야 합니다.
+
+### Bulk Insert
+```typescript
+const manyUsers = Array(1000).fill({ ... });
+await db.insert(users).values(manyUsers); 
+// Drizzle이 하나의 SQL로 묶어서 보냅니다. (Limit 있음, 보통 65535 파라미터)
+```
+
+### Transaction 활용
+여러 작업을 한 번에 묶습니다.
+
+```typescript
+await db.transaction(async (tx) => {
+  // 1. 유저 생성
+  const [user] = await tx.insert(users).values(...).returning();
+  
+  // 2. 프로필 생성 (유저 ID 필요)
+  await tx.insert(profiles).values({ userId: user.id, ... });
+  
+  // 3. 환영 이메일 로그
+  await tx.insert(logs).values(...);
+});
+```
+
+---
+
+## 🔗 레퍼런스
+- [Operators](https://orm.drizzle.team/docs/operators)
+- [Insert / Upsert](https://orm.drizzle.team/docs/insert)
+- [Update](https://orm.drizzle.team/docs/update)
+
+**다음 장**: [06. 고급 쿼리 (Advanced Queries)](./06-advanced-queries.md)

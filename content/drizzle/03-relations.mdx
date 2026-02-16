@@ -1,0 +1,250 @@
+---
+title: "03. 관계 정의 (Relations)"
+description: "1:1, 1:N, N:M 등 실무에서 마주칠 수 있는 모든 관계 패턴을 정리한 레퍼런스입니다."
+date: "2026-02-16"
+---
+
+실무에서 마주칠 수 있는 모든 관계 패턴을 정리했습니다. **"복사해서 쓰기 좋은"** 형태의 레퍼런스입니다.
+
+---
+
+## 📐 1. 관계의 두 축: References vs Relations
+
+| 구분 | References (`.references()`) | Relations (`relations()`) |
+|------|------------------------------|---------------------------|
+| **역할** | **DB 제약조건 (Foreign Key)** | **ORM 조회 편의성 (Navigation)** |
+| **위치** | `pgTable` 안의 컬럼 정의 | `relations` 함수 내부 |
+| **효과** | 무결성 보장 (없는 ID 입력 차단) | `with: { posts: true }` 사용 가능 |
+| **필수?** | **필수** (DB 설계의 기본) | 선택 (조회 편하게 하려면 필수) |
+
+> ⭐️ **Rule**: `relations`를 정의하려면, 먼저 테이블에 `Foreign Key`가 있어야 합니다.
+
+---
+
+## 🧩 2. 패턴별 구현 (Copy & Paste)
+
+### 1️⃣ 1:N (일대다) - 가장 기본
+**상황**: 한 유저(`User`)가 여러 글(`Post`)을 작성.
+
+```typescript
+// schema/users.ts
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  name: text('name'),
+});
+
+// schema/posts.ts
+export const posts = pgTable('posts', {
+  id: serial('id').primaryKey(),
+  title: text('title'),
+  // 1. Foreign Key 설정 (DB)
+  authorId: integer('author_id').references(() => users.id), 
+});
+
+// relations.ts (혹은 각 파일 하단)
+export const usersRelations = relations(users, ({ many }) => ({
+  posts: many(posts), // 유저는 글을 '여러 개' 가짐
+}));
+
+export const postsRelations = relations(posts, ({ one }) => ({
+  author: one(users, {
+    fields: [posts.authorId], // 내 테이블 컬럼
+    references: [users.id],   // 참조 테이블 컬럼
+  }),
+}));
+```
+
+---
+> 💡 **Q. 왜 한쪽만 `fields`, `references`를 길게 쓰나요?**
+>
+> **A. 외래키(Foregin Key)를 '실제로 가진 쪽'이 관계의 주인입니다.**
+> - **Post (자식/FK 보유)**: `authorId`라는 실제 컬럼이 있으므로, **"내 `authorId` 컬럼이 `User` 테이블의 `id` 컬럼을 가리킵니다"**라고 명확히 적어줘야 합니다. (`fields`, `references` 필수)
+> - **User (부모/참조 당함)**: DB에 실제 컬럼이 없습니다. 그냥 **"난 `Post`들을 여러 개 가지고 있어"**(`many(posts)`)라고 선언만 하면, Drizzle이 알아서 `Post` 쪽의 정의를 보고 연결해줍니다.
+
+### 2️⃣ 1:1 (일대일) - 프로필, 설정
+**상황**: 유저(`User`)는 하나의 프로필(`Profile`)만 가짐.
+
+```typescript
+// schema/profile.ts
+export const profiles = pgTable('profiles', {
+  id: serial('id').primaryKey(),
+  bio: text('bio'),
+  // Foreign Key에 unique()를 붙이면 1:1이 됨! ⭐️
+  userId: integer('user_id').references(() => users.id).unique(),
+});
+
+// relations
+export const usersRelations = relations(users, ({ one }) => ({
+  profile: one(profiles), // 유저는 프로필을 '하나' 가짐
+}));
+
+export const profilesRelations = relations(profiles, ({ one }) => ({
+  user: one(users, {
+    fields: [profiles.userId],
+    references: [users.id],
+  }),
+}));
+```
+
+> 💡 **Pro Tip: 어디에 `references`를 넣어야 할까요?**
+>
+> 1:1 관계에서는 **"종속되는 쪽(Dependent)"** 이 Foreign Key를 가집니다.
+> - **User vs Profile**: 프로필은 유저 없이는 존재할 수 없으므로, `Profile` 테이블에 `user_id` 컬럼을 만듭니다.
+> - **User vs Config**: 설정도 유저에 종속되므로, `Config` 테이블에 `user_id`를 만듭니다.
+>
+> Drizzle의 `relations` 정의 시:
+> - **FK가 있는 쪽(Profile)**: `fields: [profile.userId], references: [users.id]`를 명시합니다.
+> - **FK가 없는 쪽(User)**: 그냥 `profile: one(profiles)`라고만 적어도 Drizzle이 알아서 연결해줍니다.
+
+---
+
+### 3️⃣ N:M (다대다) - 연결 테이블 필수 ⭐️
+**상황**: 글(`Post`)에 태그(`Category`)가 여러 개, 태그 하나에도 글이 여러 개.
+
+실무에선 **명시적 연결 테이블(Explicit Junction Table)** 을 만드는 게 좋습니다. 그래야 연결 테이블에 추가 정보(예: `assignedAt`)를 넣을 수 있거든요.
+
+```typescript
+// 1. Post 테이블
+export const posts = pgTable('posts', { id: serial('id').primaryKey() });
+
+// 2. Category 테이블
+export const categories = pgTable('categories', { id: serial('id').primaryKey() });
+
+// 3. 연결 테이블 (Junction Table)
+export const postsToCategories = pgTable('posts_to_categories', {
+  postId: integer('post_id').references(() => posts.id).notNull(),
+  categoryId: integer('category_id').references(() => categories.id).notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.postId, t.categoryId] }), // 복합키 추천
+}));
+
+// 4. Relations 정의
+export const postsRelations = relations(posts, ({ many }) => ({
+  postsToCategories: many(postsToCategories), // 일단 연결 테이블이랑 1:N
+}));
+
+export const categoriesRelations = relations(categories, ({ many }) => ({
+  postsToCategories: many(postsToCategories),
+}));
+
+export const postsToCategoriesRelations = relations(postsToCategories, ({ one }) => ({
+  post: one(posts, { fields: [postsToCategories.postId], references: [posts.id] }),
+  category: one(categories, { fields: [postsToCategories.categoryId], references: [categories.id] }),
+}));
+```
+
+> 💡 **Q. N:M인데 왜 연결 테이블에선 `one`을 쓰나요?**
+>
+> **A. 연결 테이블의 '한 행(Row)' 기준이기 때문입니다.**
+> - `posts_to_categories` 테이블에 들어가는 **데이터 한 줄** 은, "이 글(1개)"과 "이 태그(1개)"를 잇는 **단일 연결고리**입니다.
+> - 연결고리 하나는, 양쪽 끝에 각각 하나의 `Post`와 하나의 `Category`를 잡고 있습니다. 그래서 `one`입니다.
+> - 반대로 `Post` 입장에서는 이런 연결고리가 여러 개 주렁주렁 매달릴 수 있으니 `many`가 됩니다.
+
+> 💡 **Q. 아하, '몇 개를 쥐고 있냐'가 기준인가요?**
+>
+> **A. 맞습니다! "현재 정의하고 있는 테이블의 데이터 1줄"이 주인공입니다.**
+> - **연결 테이블의 1줄**: `postId` 하나, `categoryId` 하나를 쥐고 있죠? -> 그래서 양쪽 다 **`one`**
+> - **Post 테이블의 1줄**: 내 글에 달린 연결고리(PostsToCategories)는 여러 개일 수 있죠? -> 그래서 **`many`**
+>
+> **요약**: "나(현재 테이블의 Row)를 기준으로 쟤(대상)가 몇 개야?"라고 물어보세요.
+  
+**조회할 때:**
+```typescript
+const result = await db.query.posts.findMany({
+  with: {
+    postsToCategories: {
+      with: {
+        category: true, // 한 단계 거쳐서 가져옴
+      }
+    }
+  }
+});
+// result[0].postsToCategories[0].category.name 으로 접근
+```
+
+---
+
+### 4️⃣ Self-Referencing (자기 참조) - 댓글, 팔로우
+
+**상황 1: 대댓글 (계층형 구조)**
+댓글(`Comment`)이 부모 댓글(`parent_id`)을 가짐.
+
+```typescript
+export const comments = pgTable('comments', {
+  id: serial('id').primaryKey(),
+  content: text('content'),
+  parentId: integer('parent_id'), // 자기 자신의 id를 참조할 예정
+});
+
+export const commentsRelations = relations(comments, ({ one, many }) => ({
+  // 부모 댓글 (1개)
+  parent: one(comments, {
+    fields: [comments.parentId],
+    references: [comments.id], 
+    relationName: 'comment_parent', // ⭐️ 이름 필수 (구분용)
+  }),
+  // 대댓글들 (여러 개)
+  replies: many(comments, {
+    relationName: 'comment_parent', // 같은 이름으로 매칭
+  }),
+}));
+```
+
+**상황 2: 유저 팔로우 (User -> User)**
+N:M 자기 참조입니다. 별도의 팔로우 테이블이 필요합니다.
+
+```typescript
+export const follows = pgTable('follows', {
+  followerId: integer('follower_id').references(() => users.id),
+  followingId: integer('following_id').references(() => users.id),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.followerId, t.followingId] }),
+}));
+
+export const usersRelations = relations(users, ({ many }) => ({
+  // 내가 팔로우하는 사람들
+  following: many(follows, { relationName: 'user_following' }),
+  // 나를 팔로우하는 사람들
+  followers: many(follows, { relationName: 'user_followers' }),
+}));
+
+export const followsRelations = relations(follows, ({ one }) => ({
+  follower: one(users, {
+    fields: [follows.followerId],
+    references: [users.id],
+    relationName: 'user_following',
+  }),
+  following: one(users, {
+    fields: [follows.followingId],
+    references: [users.id],
+    relationName: 'user_followers',
+  }),
+}));
+```
+
+---
+
+## 🚦 3. 자주 겪는 에러 (Troubleshooting)
+
+### Q. "Relation name collision"?
+같은 테이블 간 관계가 2개 이상이면(예: 작성자 `author`, 수정자 `editor` 둘 다 User 참조), Drizzle이 헷갈려 합니다.
+👉 **`relationName`** 옵션을 줘서 이름을 붙여주세요.
+
+```typescript
+author: one(users, { ..., relationName: 'author' }),
+editor: one(users, { ..., relationName: 'editor' }),
+```
+
+### Q. 순환 참조 (Circular Dependency)
+`users.ts`가 `posts.ts`를 import하고, `posts.ts`가 `users.ts`를 import하면 에러 뜹니다.
+👉 **해결책**:
+1. 관계 정의(`relations`)만 따로 모아서 `schema/relations.ts` 파일을 만듭니다.
+2. 혹은 `relations` 정의를 각 파일의 맨 아래로 내리고, 함수 내부에서 변수를 참조하게 합니다(Lazy evaluation).
+
+---
+
+## 🔗 레퍼런스
+- [Relations V2 API](https://orm.drizzle.team/docs/rqb#declaring-relations)
+- [Self Referencing Relations](https://orm.drizzle.team/docs/guides/relationships)
+
+**다음 장**: [04. 마이그레이션 (Migrations)](./04-migrations.md)

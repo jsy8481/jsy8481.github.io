@@ -1,0 +1,476 @@
+---
+title: "05. Drizzle 데이터베이스 연동"
+description: "NestJS의 모듈 시스템과 의존성 주입을 활용하여 Drizzle ORM을 체계적으로 관리합니다."
+date: "2026-02-16"
+---
+
+## NestJS + Drizzle 통합
+
+### 왜 이 조합인가?
+
+NestJS의 **모듈 시스템**과 ** 의존성 주입**을 활용하여 Drizzle ORM을 체계적으로 관리합니다.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  NestJS 모듈 시스템       │  Drizzle ORM                       │
+├──────────────────────────┼──────────────────────────────────────┤
+│  • 의존성 주입 (DI)       │  • 타입 안전 쿼리                   │
+│  • 모듈 캡슐화            │  • 스키마 정의                      │
+│  • 테스트 용이성          │  • 마이그레이션                     │
+│  • 라이프사이클 관리      │  • 관계형 쿼리 API                  │
+└──────────────────────────┴──────────────────────────────────────┘
+```
+
+---
+
+## DatabaseModule 생성
+
+### 기본 구조
+
+```typescript
+// database/database.module.ts
+import { Global, Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { drizzle, PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+import * as schema from '@repo/schema';
+
+// 주입 토큰 상수
+export const DATABASE_TOKEN = 'DATABASE';
+
+@Global()  // 전역 모듈 - 모든 곳에서 import 없이 사용
+@Module({
+  providers: [
+    {
+      provide: DATABASE_TOKEN,
+      useFactory: (configService: ConfigService) => {
+        const databaseUrl = configService.getOrThrow<string>('DATABASE_URL');
+        
+        const client = postgres(databaseUrl, {
+          max: 10,         // 최대 연결 수
+          idle_timeout: 20, // 유휴 연결 타임아웃
+          prepare: false,  // Supabase Pooler 사용 시 필수 (세션 모드)
+        });
+        
+        return drizzle(client, { schema });
+      },
+      inject: [ConfigService],  // 의존성 주입 표시
+    },
+  ],
+  exports: [DATABASE_TOKEN],
+})
+export class DatabaseModule {}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `@Global()` | 이 모듈을 **전역 모듈** 로 등록합니다. 다른 모듈에서 `imports` 배열에 추가하지 않아도 제공하는 Provider(`DATABASE_TOKEN`)를 사용할 수 있습니다. |
+| `DATABASE_TOKEN` | DI 컨테이너에서 Drizzle 인스턴스를 식별하기 위한 고유 문자열 토큰입니다. |
+| `useFactory` | 비동기 작업(ConfigService 조회)이나 복잡한 초기화 로직을 통해 Provider를 생성할 때 사용합니다. |
+| `postgres(...)` | `postgres` 드라이버를 사용하여 실제 DB 연결 클라이언트를 생성합니다. (Connection Pool) |
+| `drizzle(...)` | 생성된 클라이언트를 감싸서 Drizzle ORM 인스턴스를 반환합니다. `schema` 옵션을 전달해야 타입 추론이 가능합니다. |
+
+
+
+
+### 타입 정의
+
+```typescript
+// database/database.types.ts
+import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import * as schema from '@repo/schema';
+
+// Drizzle 인스턴스 타입
+export type Database = PostgresJsDatabase<typeof schema>;
+```
+
+---
+
+## 서비스에서 사용
+
+### 기본 주입 패턴
+
+```typescript
+// stocks/stocks.service.ts
+import { Injectable, Inject } from '@nestjs/common';
+import { DATABASE_TOKEN, Database } from '../database';
+import { stocks, Stock, NewStock } from '@repo/schema';
+import { eq, desc } from 'drizzle-orm';
+
+@Injectable()
+export class StocksService {
+  constructor(
+    @Inject(DATABASE_TOKEN) 
+    private readonly db: Database,
+  ) {}
+
+  async findAll(): Promise<Stock[]> {
+    return this.db.query.stocks.findMany({
+      orderBy: [desc(stocks.marketCap)],
+    });
+  }
+
+  async findBySymbol(symbol: string): Promise<Stock | undefined> {
+    return this.db.query.stocks.findFirst({
+      where: eq(stocks.symbol, symbol),
+    });
+  }
+
+  async create(data: NewStock): Promise<Stock> {
+    const [stock] = await this.db
+      .insert(stocks)
+      .values(data)
+      .returning();
+    return stock;
+  }
+
+  async update(symbol: string, data: Partial<NewStock>): Promise<Stock> {
+    const [updated] = await this.db
+      .update(stocks)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(stocks.symbol, symbol))
+      .returning();
+    return updated;
+  }
+
+  async remove(symbol: string): Promise<void> {
+    await this.db
+      .delete(stocks)
+      .where(eq(stocks.symbol, symbol));
+  }
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `@Inject(DATABASE_TOKEN)` | 커스텀 Provider인 DB 연결 객체를 주입받습니다. |
+| `this.db.query.stocks.findMany` | Drizzle의 **Query API** 를 사용하여 관계형 데이터 조회를 수행합니다. |
+| `.insert(stocks).values(data)` | SQL `INSERT` 문을 생성하고 실행합니다. |
+| `.returning()` | Postgres의 `RETURNING *` 구문을 사용하여 삽입/수정된 데이터를 즉시 반환받습니다. (추가 조회 쿼리 불필요) |
+| `.set({ ...data, updatedAt: ... })` | SQL `UPDATE` 문에서 변경할 컬럼과 값을 지정합니다. |
+| `eq(stocks.symbol, symbol)` | `WHERE` 절에서 사용할 동등 비교 조건입니다. |
+
+
+### 관계 포함 쿼리
+
+```typescript
+async findWithDetails(symbol: string) {
+  return this.db.query.stocks.findFirst({
+    where: eq(stocks.symbol, symbol),
+    with: {
+      priceHistory: {
+        orderBy: [desc(priceHistory.date)],
+        limit: 30,
+      },
+      watchlistItems: {
+        with: {
+          watchlist: {
+            columns: { id: true, name: true },
+          },
+        },
+      },
+    },
+  });
+}
+```
+
+---
+
+## 트랜잭션 처리
+
+### 기본 트랜잭션
+
+```typescript
+import { sql } from 'drizzle-orm';
+
+async transferStock(
+  fromUserId: string, 
+  toUserId: string, 
+  stockSymbol: string,
+  quantity: number,
+): Promise<void> {
+  await this.db.transaction(async (tx) => {
+    // 1. 판매자 포지션 감소
+    await tx
+      .update(positions)
+      .set({ 
+        quantity: sql`${positions.quantity} - ${quantity}` 
+      })
+      .where(
+        and(
+          eq(positions.userId, fromUserId),
+          eq(positions.stockSymbol, stockSymbol),
+        )
+      );
+
+    // 2. 구매자 포지션 증가 (없으면 생성)
+    await tx
+      .insert(positions)
+      .values({
+        userId: toUserId,
+        stockSymbol,
+        quantity,
+      })
+      .onConflictDoUpdate({
+        target: [positions.userId, positions.stockSymbol],
+        set: { 
+          quantity: sql`${positions.quantity} + ${quantity}` 
+        },
+      });
+
+    // 3. 거래 기록 생성
+    await tx.insert(transactions).values({
+      fromUserId,
+      toUserId,
+      stockSymbol,
+      quantity,
+      executedAt: new Date(),
+    });
+  });
+  // 트랜잭션 내 어느 하나라도 실패하면 전체 롤백!
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `this.db.transaction(async (tx) => ...)` | 데이터베이스 트랜잭션을 시작합니다. 콜백 함수 내의 모든 작업은 원자적(Atomic)으로 실행됩니다. |
+| `tx` | 트랜잭션 문맥(Context)을 가진 Drizzle 인스턴스입니다. 트랜잭션 내에서는 반드시 `this.db` 대신 `tx`를 사용해야 합니다. |
+| `sql\`...\`` | 원시(Raw) SQL 조각을 생성합니다. 여기서는 `quantity = quantity - 10`과 같은 연산에 사용되었습니다. |
+| `.onConflictDoUpdate()` | `UPSERT` (Insert or Update) 구문을 생성합니다. 충돌 발생 시 업데이트를 수행합니다. |
+
+
+**트랜잭션을 사용해야 하는 경우:**
+- 여러 테이블을 동시에 수정할 때
+- 데이터 일관성이 중요할 때 (송금, 재고 관리 등)
+- "전부 성공 또는 전부 실패" 동작이 필요할 때
+
+---
+
+## Repository 패턴 (선택사항)
+
+대규모 프로젝트에서는 Repository 패턴으로 데이터 접근 로직을 더 분리할 수 있습니다.
+
+### Repository 클래스
+
+```typescript
+// stocks/stocks.repository.ts
+import { Injectable, Inject } from '@nestjs/common';
+import { DATABASE_TOKEN, Database } from '../database';
+import { stocks, Stock, NewStock } from '@repo/schema';
+import { eq, and, gte, lte, like } from 'drizzle-orm';
+
+@Injectable()
+export class StocksRepository {
+  constructor(
+    @Inject(DATABASE_TOKEN) 
+    private readonly db: Database,
+  ) {}
+
+  // 기본 CRUD
+  findAll() {
+    return this.db.query.stocks.findMany();
+  }
+
+  findBySymbol(symbol: string) {
+    return this.db.query.stocks.findFirst({
+      where: eq(stocks.symbol, symbol),
+    });
+  }
+
+  insert(data: NewStock) {
+    return this.db.insert(stocks).values(data).returning();
+  }
+
+  // 복잡한 쿼리도 여기에
+  findByPriceRange(minPrice: number, maxPrice: number) {
+    return this.db.query.stocks.findMany({
+      where: and(
+        gte(stocks.currentPrice, minPrice),
+        lte(stocks.currentPrice, maxPrice),
+      ),
+    });
+  }
+
+  searchByName(keyword: string) {
+    return this.db.query.stocks.findMany({
+      where: like(stocks.name, `%${keyword}%`),
+    });
+  }
+}
+```
+
+### 서비스에서 Repository 사용
+
+```typescript
+// stocks/stocks.service.ts
+@Injectable()
+export class StocksService {
+  constructor(
+    private readonly stocksRepo: StocksRepository,
+    private readonly notificationService: NotificationService,
+  ) {}
+
+  async create(data: NewStock): Promise<Stock> {
+    const [stock] = await this.stocksRepo.insert(data);
+    
+    // 비즈니스 로직은 서비스에
+    await this.notificationService.notifyNewStock(stock);
+    
+    return stock;
+  }
+}
+```
+
+**Repository vs Service:**
+- Repository: 순수 데이터 접근 (DB 쿼리만)
+- Service: 비즈니스 로직 (검증, 알림, 캐싱 등)
+
+---
+
+## 모듈 등록
+
+```typescript
+// stocks/stocks.module.ts
+import { Module } from '@nestjs/common';
+import { StocksController } from './stocks.controller';
+import { StocksService } from './stocks.service';
+import { StocksRepository } from './stocks.repository';
+// DatabaseModule은 @Global()이라 import 불필요
+
+@Module({
+  controllers: [StocksController],
+  providers: [
+    StocksService,
+    StocksRepository,  // Repository 패턴 사용 시
+  ],
+  exports: [StocksService],
+})
+export class StocksModule {}
+```
+
+```typescript
+// app.module.ts
+import { Module } from '@nestjs/common';
+import { DatabaseModule } from './database/database.module';
+import { StocksModule } from './stocks/stocks.module';
+import { UsersModule } from './users/users.module';
+
+@Module({
+  imports: [
+    DatabaseModule,  // 전역 모듈
+    StocksModule,
+    UsersModule,
+  ],
+})
+export class AppModule {}
+```
+
+---
+
+---
+
+## 💡 실무 팁
+
+### 1. Supabase Transaction Mode
+Supabase를 사용할 때는 **Transaction Mode (Port 6543)** 를 사용해야 합니다.
+Session Mode (Port 5432)를 사용하면 서버리스 환경에서 연결 수 제한(Max Connections) 문제로 서버가 터질 수 있습니다.
+`DatabaseModule` 설정에서 `prepare: false` 옵션이 필수입니다.
+
+### 1. 연결 상태 체크
+
+```typescript
+// health.controller.ts
+export class HealthController {
+  constructor(
+    @Inject(DATABASE_TOKEN) private readonly db: Database,
+  ) {}
+
+  @Get('db')
+  async checkDatabase() {
+    try {
+      await this.db.execute(sql`SELECT 1`);
+      return { status: 'ok' };
+    } catch (error) {
+      throw new ServiceUnavailableException('Database unavailable');
+    }
+  }
+}
+```
+
+### 2. 로깅 추가
+
+```typescript
+const client = postgres(process.env.DATABASE_URL!, {
+  debug: (connection, query, params) => {
+    console.log('[SQL]', query);
+    console.log('[PARAMS]', params);
+  },
+});
+```
+
+---
+
+## 테스트 (Testing)
+
+데이터베이스 의존성이 있는 서비스를 테스트할 때는 `DATABASE_TOKEN`을 Mocking해야 합니다.
+
+```typescript
+// stocks.service.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { StocksService } from './stocks.service';
+import { DATABASE_TOKEN } from '../database';
+
+// Mock DB 객체
+const mockDb = {
+  query: {
+    stocks: {
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+    },
+  },
+  insert: jest.fn().mockReturnThis(),
+  values: jest.fn().mockReturnThis(),
+  returning: jest.fn(),
+};
+
+describe('StocksService', () => {
+  let service: StocksService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        StocksService,
+        {
+          provide: DATABASE_TOKEN,
+          useValue: mockDb,  // 실제 DB 대신 Mock 주입
+        },
+      ],
+    }).compile();
+
+    service = module.get<StocksService>(StocksService);
+  });
+
+  it('should be defined', () => {
+    expect(service).toBeDefined();
+  });
+
+  it('findAll을 호출하면 DB에서 조회를 수행해야 함', async () => {
+    mockDb.query.stocks.findMany.mockResolvedValue([]);
+    await service.findAll();
+    expect(mockDb.query.stocks.findMany).toHaveBeenCalled();
+  });
+});
+```
+
+---
+
+## 레퍼런스
+
+- [Drizzle ORM - PostgreSQL](https://orm.drizzle.team/docs/get-started-postgresql)
+- [NestJS - Custom Providers](https://docs.nestjs.com/fundamentals/custom-providers)
+- [NestJS - Database](https://docs.nestjs.com/techniques/database)
+
+**다음 장**: [06. 인증 처리](./06-authentication.md)

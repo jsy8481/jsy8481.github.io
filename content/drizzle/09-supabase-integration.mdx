@@ -1,0 +1,100 @@
+---
+title: "09. Supabase 연동 (Supabase Integration)"
+description: "Supabase와 Drizzle ORM을 연동하여 Auth, RLS, Edge Functions 등 다양한 기능을 활용하는 방법을 다룹니다."
+date: "2026-02-16"
+---
+
+Supabase는 단순한 DB가 아니라 **Backend-as-a-Service**입니다. Drizzle을 Supabase의 다양한 기능(Auth, RLS, Edge Functions)과 함께 200% 활용하는 방법을 다룹니다.
+
+---
+
+## 🔌 1. 연결 설정: Transaction(6543) vs Session(5432)
+
+Supabase 대시보드 > Settings > Database > Connection pooling 정보를 확인하세요.
+
+| 모드 | 포트 | 용도 | 비고 |
+|------|------|------|------|
+| **Session Mode** | `5432` | **Migration** | `drizzle-kit`은 직접 연결이 필요합니다. |
+| **Transaction Mode** | `6543` | **Application** | `NestJS`, `Next.js` 등 앱 실행 시. (Supavisor 사용) |
+
+### 🚨 주의: `prepare: false`
+Transaction Mode(6543)는 쿼리를 미리 준비하는 `Prepared Statement` 기능을 지원하지 않습니다. (Supavisor 제한사항). 따라서 Drizzle 설정에서 반드시 꺼야 합니다.
+
+```typescript
+// src/db/index.ts
+import postgres from 'postgres';
+import { drizzle } from 'drizzle-orm/postgres-js';
+
+const connectionString = process.env.DATABASE_URL!; // 6543 포트 주소
+const client = postgres(connectionString, { 
+  prepare: false // 👈 이거 안 하면 "prepared statement already exists" 에러 터짐
+});
+
+export const db = drizzle(client);
+```
+
+---
+
+## 🔐 2. RLS (Row Level Security)와 Drizzle
+
+Supabase의 강력한 보안 기능인 RLS는 **"누가 요청했느냐"** 에 따라 데이터를 보여주거나 숨깁니다.
+
+### Drizzle은 보통 "Admin"이다
+`NestJS`나 `Next.js API Route`에서 실행되는 Drizzle은 보통 **Service Role Key** (관리자 키)를 사용하거나, DB 접속 정보를 직접 가지고 있습니다. 이 경우 **RLS를 우회(Bypass)** 합니다. (슈퍼 유저 권한)
+
+**따라서 백엔드 코드에서 직접 권한 검사를 해야 합니다.**
+
+```typescript
+// users.service.ts
+async findMyPosts(userId: number) {
+  return db.query.posts.findMany({
+    // RLS가 자동으로 안 막아주므로, where절로 직접 필터링 필수
+    where: (posts, { eq }) => eq(posts.authorId, userId),
+  });
+}
+```
+
+### RLS를 적용하고 싶다면? (Advanced)
+Drizzle 쿼리 실행 전에 현재 유저 세션을 DB에 설정해주는 방식을 씁니다. (Postgres 세션 변수 활용)
+
+```typescript
+await db.transaction(async (tx) => {
+  // 1. 현재 트랜잭션 내에서 유저 ID 설정 (Supabase가 인식하도록)
+  await tx.execute(sql`set local request.jwt.claim.sub = ${userId}`);
+  
+  // 2. 이제 쿼리하면 RLS가 작동함
+  return tx.query.posts.findMany(); 
+});
+```
+
+---
+
+## 🌍 3. Edge Functions (Deno 기반)
+
+Supabase Edge Functions에서 Drizzle을 쓸 땐 `postgres.js` 대신 가벼운 드라이버나 HTTP 연결을 고려해야 합니다.
+
+```typescript
+// deno.json
+{
+  "imports": {
+    "drizzle-orm": "npm:drizzle-orm@...",
+    "postgres": "npm:postgres@..."
+  }
+}
+```
+Deno 환경에서도 `npm:` 접두어를 통해 똑같이 Drizzle을 사용할 수 있습니다. 단, **연결 수 관리** 를 위해 Transaction Mode(Pooling) 사용이 필수입니다.
+
+---
+
+## 🚀 4. 배포 전 체크리스트
+
+1.  [ ] `DATABASE_URL`이 6543(Transaction) 포트인가?
+2.  [ ] `DIRECT_URL`이 5432(Session) 포트인가?
+3.  [ ] `drizzle.config.ts`는 `DIRECT_URL`을 바라보는가?
+4.  [ ] 프로덕션 DB 백업은 설정되었는가? (Supabase Pro 플랜 이상 권장)
+
+---
+
+## 🔗 레퍼런스
+- [Supabase Connection Pooling](https://supabase.com/docs/guides/database/connecting/connection-pooling)
+- [Drizzle with Supabase](https://orm.drizzle.team/learn/tutorials/drizzle-with-supabase)

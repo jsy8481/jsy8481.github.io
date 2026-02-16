@@ -1,0 +1,322 @@
+---
+title: "01. Jotai 기초"
+description: "Atom은 Jotai에서 상태의 최소 단위입니다. 컴포넌트 외부에서 정의하여 여러 컴포넌트에서 공유할 수 있습니다."
+date: "2026-02-16"
+---
+
+## Atom이란?
+
+### 개념 정의
+
+**Atom(아톰)** 은 Jotai에서 상태의 최소 단위입니다. React의 `useState`와 비슷하지만, 컴포넌트 외부에서 정의되어 여러 컴포넌트에서 공유할 수 있습니다.
+
+"Atom"이라는 이름은 화학에서 가져온 것으로, **더 이상 나눌 수 없는 가장 작은 단위** 를 의미합니다. Jotai는 **Bottom-up(상향식)** 접근 방식을 따릅니다. 작은 원자(Atom)들을 정의하고, 이를 조합하여 복잡한 상태를 만들어나가는 방식입니다. 이는 리덕스(Redux)와 같은 Top-down(하향식) 방식과는 대조적입니다.
+
+### 왜 Atom이 필요한가?
+
+**문제점: React의 상태 공유 어려움**
+
+```tsx
+// ❌ 문제: 두 컴포넌트에서 같은 상태를 공유하려면?
+function ComponentA() {
+  const [count, setCount] = useState(0);  // 이 상태를 B에서 어떻게 접근?
+}
+
+function ComponentB() {
+  // ComponentA의 count를 어떻게 사용?
+}
+```
+
+기존 해결책들의 단점:
+- **Props drilling**: 부모 → 자식으로 계속 전달해야 함 (코드 복잡)
+- **Context**: Provider 중첩, 불필요한 리렌더링 발생 (전체 범위를 다시 그리는 문제)
+- **Redux**: 보일러플레이트 코드가 많고, 설정이 복잡함
+
+**해결책: Jotai Atom**
+
+```tsx
+// ✅ 해결: 컴포넌트 외부에서 atom 정의
+import { atom, useAtom } from 'jotai';
+
+// 1. 컴포넌트 외부에서 atom 선언
+const countAtom = atom(0);
+
+// 2. 어느 컴포넌트에서든 같은 atom 사용
+function ComponentA() {
+  const [count, setCount] = useAtom(countAtom);
+  return <button onClick={() => setCount(c => c + 1)}>+</button>;
+}
+
+function ComponentB() {
+  const [count] = useAtom(countAtom);  // A와 동일한 값!
+  return <span>Count: {count}</span>;
+}
+```
+
+**코드 설명:**
+- `atom(0)`: 초기값이 0인 atom을 생성합니다. 이 atom은 전역에서 고유합니다.
+- `useAtom(countAtom)`: React의 `useState`처럼 `[값, setter]` 튜플을 반환합니다.
+- ComponentA에서 `setCount`를 호출하면, ComponentB의 `count`도 자동으로 업데이트됩니다.
+
+---
+
+## 핵심 API 및 사용법
+
+### 1. atom 생성 (Primitive & Derived)
+
+Jotai의 `atom`은 단순히 값만 담는 것이 아니라, 다른 atom을 참조하여 **파생된 상태(Derived State)** 를 만들 수도 있습니다.
+
+```tsx
+import { atom } from 'jotai';
+
+// 1. Primitive Atom (기본형)
+// 읽기/쓰기 모두 가능
+const countAtom = atom(0);
+
+// 2. Read-only Derived Atom (읽기 전용)
+// 다른 atom의 값을 읽어서 계산 (의존성 자동 추적)
+// get 함수를 사용하여 다른 atom의 값을 가져옵니다.
+const doubleCountAtom = atom((get) => get(countAtom) * 2);
+
+// 3. Read-Write Derived Atom (읽기/쓰기 가능)
+// 읽기 함수와 쓰기 함수를 모두 제공합니다.
+const discountAtom = atom(
+  (get) => get(countAtom) * 0.9, // 읽기: 10% 할인된 값
+  (get, set, newPrice) => {      // 쓰기: 할인된 가격을 설정하면 원본 업데이트
+    // set(대상atom, 새로운값)
+    set(countAtom, newPrice / 0.9);
+  }
+);
+```
+
+### 2. 컴포넌트에서 사용 (Hooks)
+
+`useAtom` 외에도 상황에 맞는 훅을 사용하여 성능을 최적화할 수 있습니다.
+
+```tsx
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+
+function Component() {
+  // 1. 읽기/쓰기 모두 필요
+  const [count, setCount] = useAtom(countAtom);
+
+  // 2. 값만 필요 (렌더링 최적화)
+  // 값이 바뀔 때만 리렌더링됩니다. setter가 없으므로 실수로 값을 바꿀 위험이 없습니다.
+  const countValue = useAtomValue(countAtom);
+
+  // 3. 쓰기(함수)만 필요 (렌더링 최적화)
+  // 값이 바뀌어도 이 컴포넌트는 리렌더링 되지 않습니다!
+  const setCountOnly = useSetAtom(countAtom);
+}
+```
+
+---
+
+## 실전 예제: UI 상태 관리
+
+### 사이드바, 모달 등 UI 상태
+
+```tsx
+// stores/ui.ts
+import { atom } from 'jotai';
+
+// 사이드바 열림/닫힘 상태
+export const sidebarOpenAtom = atom(false);
+
+// 현재 선택된 탭
+export const activeTabAtom = atom<'overview' | 'analysis' | 'news'>('overview');
+
+// 모달 상태 (어떤 모달이 열려있는지)
+export const modalAtom = atom<'login' | 'settings' | null>(null);
+```
+
+**UI 상태를 Atom으로 관리하는 이유:**
+- 헤더의 햄버거 버튼 → 사이드바 열기
+- 사이드바의 X 버튼 → 사이드바 닫기
+- 이 두 컴포넌트는 멀리 떨어져 있지만 같은 상태를 공유해야 함
+
+```tsx
+// components/Header.tsx
+'use client';
+
+import { useSetAtom } from 'jotai';
+import { sidebarOpenAtom } from '@/stores/ui';
+
+export function Header() {
+  // useSetAtom 사용: 사이드바 상태가 변해도 헤더는 다시 렌더링될 필요 없음
+  const setSidebarOpen = useSetAtom(sidebarOpenAtom);
+  
+  return (
+    <header>
+      <button onClick={() => setSidebarOpen(true)}>
+        ☰ 메뉴
+      </button>
+    </header>
+  );
+}
+```
+
+```tsx
+// components/Sidebar.tsx
+'use client';
+
+import { useAtom } from 'jotai';
+import { sidebarOpenAtom } from '@/stores/ui';
+
+export function Sidebar() {
+  // useAtom 사용: 상태값(isOpen)과 변경함수(setIsOpen) 모두 필요
+  const [isOpen, setIsOpen] = useAtom(sidebarOpenAtom);
+  
+  if (!isOpen) return null;
+  
+  return (
+    <aside className="sidebar">
+      <button onClick={() => setIsOpen(false)}>✕ 닫기</button>
+      <nav>...</nav>
+    </aside>
+  );
+}
+```
+
+---
+
+## 고급: 리액트 외부에서 사용 (Store API)
+
+Jotai 상태는 리액트 컴포넌트 외부(예: 유틸리티 함수, 이벤트 핸들러, 테스트 코드)에서도 접근할 수 있습니다. 이를 위해 `getDefaultStore`를 사용합니다.
+
+```tsx
+import { getDefaultStore } from 'jotai';
+import { countAtom } from './atoms';
+
+const store = getDefaultStore();
+
+// 값 읽기
+console.log(store.get(countAtom));
+
+// 값 쓰기
+store.set(countAtom, 10);
+
+// 구독하기
+const unsub = store.sub(countAtom, () => {
+  console.log('count changed:', store.get(countAtom));
+});
+// 구독 해제
+// unsub();
+```
+
+---
+
+## Provider 설정
+
+### Provider-less Mode vs Provider
+
+Jotai는 기본적으로 **Provider 없이** 동작합니다(`Provider-less`). 이를 통해 설정을 최소화하고 바로 사용할 수 있습니다.
+
+하지만 다음과 같은 경우에는 `Provider`가 필요합니다:
+
+1.  **SSR (Next.js)**: 서버 요청 간에 상태가 공유되지 않도록 격리해야 할 때. (각 요청마다 새로운 Store 생성)
+2.  **Sub-tree State**: 컴포넌트 트리 일부에만 독립적인 상태 범위를 만들고 싶을 때. (예: 리스트 아이템마다 독립적인 상태)
+
+### Next.js에서 Provider 설정
+
+```tsx
+// app/providers.tsx
+'use client';
+
+import { Provider } from 'jotai';
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <Provider>
+      {children}
+    </Provider>
+  );
+}
+```
+
+```tsx
+// app/layout.tsx
+import { Providers } from './providers';
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="ko">
+      <body>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  );
+}
+```
+
+**주의사항:**
+- `'use client'` 지시어가 필요합니다 (Jotai는 클라이언트 상태 관리 도구)
+- Provider 없이도 동작하지만, SSR 환경에서는 Provider 사용 권장
+
+---
+
+## 활용 팁
+
+### 1. Atom 네이밍 컨벤션
+
+```tsx
+// ✅ 좋은 예: xxxAtom 접미사 사용
+const userAtom = atom(null);
+const isLoadingAtom = atom(false);
+const selectedItemIdAtom = atom<string | null>(null);
+
+// ❌ 나쁜 예: atom인지 알 수 없음
+const user = atom(null);
+const loading = atom(false);
+```
+
+### 2. 도메인별 파일 분리
+
+```
+stores/
+├── ui.ts        # UI 상태 (모달, 사이드바, 테마)
+├── auth.ts      # 인증 상태 (로그인 여부, 사용자 정보)
+├── stocks.ts    # 주식 관련 상태 (선택된 종목, 필터)
+└── index.ts     # 모든 atom 내보내기
+```
+
+### 3. 불필요한 리렌더링 방지
+
+```tsx
+// ❌ 나쁜 예: 값이 바뀔 때마다 전체 리렌더링
+function BigComponent() {
+  const [cart] = useAtom(cartAtom);  // cart 변경 시 전체 리렌더링
+  return (
+    <div>
+      <ExpensiveComponent />  {/* 이것도 리렌더링됨 */}
+      <CartCount count={cart.length} />
+    </div>
+  );
+}
+
+// ✅ 좋은 예: 필요한 곳에서만 구독
+function BigComponent() {
+  return (
+    <div>
+      <ExpensiveComponent />
+      <CartCountDisplay />  {/* 이 컴포넌트만 cart 구독 */}
+    </div>
+  );
+}
+
+function CartCountDisplay() {
+  const cart = useAtomValue(cartAtom);
+  return <CartCount count={cart.length} />;
+}
+```
+
+---
+
+## 레퍼런스
+
+- [Jotai 공식 문서 - Introduction](https://jotai.org/docs/introduction)
+- [Jotai - Core API](https://jotai.org/docs/core/atom)
+- [Jotai - useAtom](https://jotai.org/docs/core/use-atom)
+- [Jotai - Store](https://jotai.org/docs/core/store)
+
+**다음 장**: [02. Jotai 심화](./02-advanced.md)

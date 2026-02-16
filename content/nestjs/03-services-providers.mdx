@@ -1,0 +1,459 @@
+---
+title: "03. 서비스와 프로바이더"
+description: "프로바이더는 NestJS의 핵심 개념으로, 의존성으로 주입될 수 있는 클래스입니다. 서비스, 저장소, 팩토리 등 다양한 형태가 됩니다."
+date: "2026-02-16"
+---
+
+## 프로바이더란?
+
+### 개념 정의
+
+**프로바이더(Provider)** 는 NestJS의 핵심 개념으로, 의존성으로 **주입**될 수 있는 클래스입니다. 서비스, 저장소(Repository), 팩토리, 헬퍼 등 다양한 형태가 될 수 있습니다.
+
+> 💡 **핵심 통찰**: 프로바이더는 "다른 곳에서 사용될 수 있는 것"입니다. NestJS의 DI(의존성 주입) 시스템이 이들의 생성과 주입을 관리합니다.
+
+```typescript
+// @Injectable() 데코레이터가 있으면 프로바이더!
+@Injectable()
+export class UsersService { }
+
+@Injectable()
+export class DatabaseService { }
+
+@Injectable()
+export class CacheService { }
+```
+
+---
+
+## 서비스 (Service)
+
+### 서비스란?
+
+**서비스** 는 비즈니스 로직을 담당하는 프로바이더입니다. 데이터베이스 조작, 외부 API 호출, 계산 로직 등 실제 작업을 수행합니다.
+
+### 왜 서비스를 분리하나요?
+
+**문제점: 컨트롤러에 모든 로직**
+
+```typescript
+// ❌ 나쁜 예: 컨트롤러가 너무 많은 일을 함
+@Controller('users')
+export class UsersController {
+  @Get()
+  async findAll() {
+    // 데이터베이스 접근
+    const users = await db.query.users.findMany();
+    
+    // 비즈니스 로직
+    const activeUsers = users.filter(u => u.status === 'active');
+    const sortedUsers = activeUsers.sort((a, b) => ...);
+    
+    // 캐싱 로직
+    await cache.set('users', sortedUsers);
+    
+    return sortedUsers;
+  }
+}
+// 문제: 테스트 어려움, 재사용 불가, 유지보수 어려움
+```
+
+**해결책: 서비스로 분리**
+
+```typescript
+// ✅ 좋은 예: 컨트롤러는 요청/응답만, 서비스가 로직 담당
+@Controller('users')
+export class UsersController {
+  constructor(private readonly usersService: UsersService) {}
+
+  @Get()
+  findAll() {
+    return this.usersService.findAllActive();  // 모든 로직 위임
+  }
+}
+
+@Injectable()
+export class UsersService {
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly cache: CacheService,
+  ) {}
+
+  async findAllActive() {
+    // 모든 비즈니스 로직이 여기에!
+    // 테스트 가능, 재사용 가능
+  }
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `@Controller('users')` | 사용자 관련 요청을 처리하는 컨트롤러입니다. |
+| `constructor(private usersService)` | **생성자 주입** 을 통해 `UsersService`의 인스턴스를 주입받습니다. NestJS가 자동으로 의존성을 해결합니다. |
+| `this.usersService.findAllActive()` | 실제 비즈니스 로직 처리를 서비스에 위임합니다. 컨트롤러는 단순히 결과를 반환하기만 합니다. |
+| `@Injectable()` | `UsersService`가 **의존성 주입** 이 가능한 클래스임을 선언합니다. |
+
+
+---
+
+## 의존성 주입 (Dependency Injection)
+
+### 기본 패턴
+
+```typescript
+@Injectable()
+export class StocksService {
+  // 생성자에서 의존성 선언
+  constructor(
+    private readonly db: DatabaseService,      // DB 접근
+    private readonly cache: CacheService,      // 캐싱
+    private readonly queue: QueueService,      // 작업 큐
+  ) {}
+
+  async findAll() {
+    // 주입된 서비스 사용
+    const cached = await this.cache.get('stocks');
+    if (cached) return cached;
+
+    const stocks = await this.db.query.stocks.findMany();
+    await this.cache.set('stocks', stocks);
+    return stocks;
+  }
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `@Injectable()` | 이 클래스는 **Provider** 이며, 다른 클래스에 주입될 수 있습니다. |
+| `constructor(...)` | 필요한 의존성(`DatabaseService`, `CacheService` 등)을 생성자 파라미터로 선언하면 NestJS가 자동으로 주입합니다. |
+| `private readonly` | 주입된 의존성을 클래스 내부 속성으로 자동 할당하고, 변경 불가능하게 만듭니다. (TypeScript 단축 문법) |
+
+
+**NestJS가 처리하는 것:**
+1. `StocksService`가 필요할 때
+2. 생성자 파라미터 분석 (`DatabaseService`, `CacheService`, ...)
+3. 각 의존성 인스턴스 생성 또는 기존 인스턴스 재사용
+4. `StocksService` 생성 시 의존성 주입
+
+### @Injectable() 옵션
+
+```typescript
+// 기본: 요청마다 같은 인스턴스 재사용 (싱글톤)
+@Injectable()
+export class StocksService {}
+
+// 요청마다 새 인스턴스 생성
+@Injectable({ scope: Scope.REQUEST })
+export class RequestScopedService {}
+
+// 주입될 때마다 새 인스턴스 생성
+@Injectable({ scope: Scope.TRANSIENT })
+export class TransientService {}
+```
+
+**스코프 선택 가이드:**
+
+| 스코프 | 값 | 사용 사례 | 성능 |
+|--------|----|-----------|------|
+| **DEFAULT** | `Singleton` | 대부분의 서비스 (상태 없음) | 최상 (한 번 생성 후 재사용) |
+| **REQUEST** | `Scope.REQUEST` | 요청별 상태 격리 필요 (예: 테넌트 ID, 요청 추적) | 중간 (요청마다 인스턴스 생성/GC) |
+| **TRANSIENT** | `Scope.TRANSIENT` | 주입될 때마다 독립적인 인스턴스 필요 | 낮음 (매번 생성) |
+
+> ⚠️ **주의**: `REQUEST` 스코프 프로바이더를 주입받는 컨트롤러나 서비스도 자동으로 `REQUEST` 스코프가 됩니다. (전염성)
+> 📘 **Deep Dive**: [Injection Scopes](../../../reference/nestjs/FUNDAMENTALS/provider-scopes.md) 참고.
+
+---
+
+---
+
+## 실전 서비스 구현
+
+### CRUD 서비스 패턴
+
+```typescript
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { eq } from 'drizzle-orm';
+import { stocks, Stock, NewStock } from '@repo/schema';
+
+@Injectable()
+export class StocksService {
+  constructor(private readonly db: DatabaseService) {}
+
+  // ==================
+  // Create
+  // ==================
+  async create(data: NewStock): Promise<Stock> {
+    const [stock] = await this.db
+      .insert(stocks)
+      .values(data)
+      .returning();
+    return stock;
+  }
+
+  // ==================
+  // Read
+  // ==================
+  async findAll(filters?: { exchange?: string }): Promise<Stock[]> {
+    return this.db.query.stocks.findMany({
+      where: filters?.exchange 
+        ? eq(stocks.exchange, filters.exchange)
+        : undefined,
+      orderBy: [desc(stocks.marketCap)],
+    });
+  }
+
+  async findBySymbol(symbol: string): Promise<Stock | null> {
+    const stock = await this.db.query.stocks.findFirst({
+      where: eq(stocks.symbol, symbol),
+    });
+    
+    if (!stock) {
+      throw new NotFoundException(`Stock '${symbol}' not found`);
+    }
+    
+    return stock;
+  }
+
+  // ==================
+  // Update
+  // ==================
+  async update(symbol: string, data: Partial<NewStock>): Promise<Stock> {
+    // 존재 확인
+    await this.findBySymbol(symbol);
+    
+    const [updated] = await this.db
+      .update(stocks)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(stocks.symbol, symbol))
+      .returning();
+    
+    return updated;
+  }
+
+  // ==================
+  // Delete
+  // ==================
+  async remove(symbol: string): Promise<void> {
+    // 존재 확인
+    await this.findBySymbol(symbol);
+    
+    await this.db
+      .delete(stocks)
+      .where(eq(stocks.symbol, symbol));
+  }
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `async create(data: NewStock)` | 새로운 주식을 생성합니다. `NewStock` 타입(Drizzle Infer)을 사용하여 타입 안전성을 보장합니다. |
+| `.returning()` | INSERT 후 생성된 데이터를 바로 반환받습니다. 별도의 조회 쿼리가 필요 없습니다. |
+| `filters?: { exchange?: string }` | 선택적 필터링 기능을 구현합니다. 값이 있을 때만 `where` 절에 조건을 추가합니다. |
+| `eq(stocks.symbol, symbol)` | Drizzle ORM의 동등 비교 연산자입니다. 심볼이 일치하는 주식을 찾습니다. |
+| `throw new NotFoundException()` | 조건에 맞는 데이터가 없을 때 404 에러를 발생시킵니다. |
+
+
+**코드 설명:**
+- `findBySymbol`에서 `NotFoundException` 던지기 → 컨트롤러에서 에러 처리 불필요
+- `update`와 `remove`에서 먼저 존재 확인 → 없으면 자동으로 404 에러
+- 모든 메서드가 타입 안전 (`Stock`, `NewStock` 타입 사용)
+
+---
+
+## 커스텀 프로바이더
+
+### 값 프로바이더
+
+```typescript
+// 상수나 설정값 주입
+@Module({
+  providers: [
+    {
+      provide: 'API_KEY',
+      useValue: process.env.API_KEY,
+    },
+    {
+      provide: 'CONFIG',
+      useValue: {
+        apiUrl: 'https://api.example.com',
+        timeout: 5000,
+      },
+    },
+  ],
+})
+export class AppModule {}
+
+// 사용
+@Injectable()
+export class StocksService {
+  constructor(@Inject('API_KEY') private apiKey: string) {}
+}
+```
+
+### 팩토리 프로바이더
+
+```typescript
+// 비동기 초기화나 조건부 생성이 필요할 때
+@Module({
+  providers: [
+    {
+      provide: 'DATABASE',
+      useFactory: async (config: ConfigService) => {
+        const connection = await createConnection({
+          host: config.get('DB_HOST'),
+          port: config.get('DB_PORT'),
+        });
+        return connection;
+      },
+      inject: [ConfigService],  // 팩토리에 주입할 의존성
+    },
+  ],
+})
+export class DatabaseModule {}
+```
+
+### 클래스 프로바이더 (조건부)
+
+```typescript
+// 환경에 따라 다른 구현체 사용
+@Module({
+  providers: [
+    {
+      provide: PaymentService,
+      useClass: 
+        process.env.NODE_ENV === 'production'
+          ? StripePaymentService  // 운영: 실제 결제
+          : MockPaymentService,   // 개발: 가짜 결제
+    },
+  ],
+### 별칭 프로바이더 (useExisting)
+
+```typescript
+// 기존 프로바이더에 별칭 부여
+@Module({
+  providers: [
+    LoggerService,
+    {
+      provide: 'AliasedLogger',
+      useExisting: LoggerService, // LoggerService와 동일 인스턴스 공유
+    },
+  ],
+})
+export class AppModule {}
+```
+
+> 📘 **Deep Dive**: [Custom Providers](../../../reference/nestjs/FUNDAMENTALS/dependency-injection.md) (원문: Dependency Injection) 참고.
+
+---
+
+---
+
+## 💡 실무 팁
+
+### 1. 서비스 계층 분리
+
+```
+복잡한 비즈니스 로직은 여러 서비스로 분리:
+
+StocksController
+    │
+    └── StocksService (API 조합)
+           │
+           ├── StockPriceService (가격 관련)
+           ├── StockAnalysisService (분석 관련)
+           └── NotificationService (알림 관련)
+```
+
+### 2. 인터페이스 기반 설계
+
+```typescript
+// 인터페이스로 계약 정의
+export interface IEmailService {
+  send(to: string, subject: string, body: string): Promise<void>;
+}
+
+// 실제 구현
+@Injectable()
+export class SendGridEmailService implements IEmailService {
+  async send(to: string, subject: string, body: string) {
+    // SendGrid API 호출
+  }
+}
+
+// 테스트용 Mock
+@Injectable()
+export class MockEmailService implements IEmailService {
+  async send(to: string, subject: string, body: string) {
+    console.log(`Email sent to ${to}: ${subject}`);
+  }
+}
+```
+
+### 3. 순환 의존성 해결
+
+```typescript
+// ❌ 순환 의존성 발생
+// A → B → A (오류!)
+
+// ✅ 해결책 1: forwardRef 사용 (서비스 간)
+@Injectable()
+export class ServiceA {
+  constructor(
+    @Inject(forwardRef(() => ServiceB))
+    private serviceB: ServiceB,
+  ) {}
+}
+
+// ✅ 해결책 2: 모듈 간 순환 의존성 해결
+@Module({
+  imports: [forwardRef(() => UsersModule)],
+})
+export class AuthModule {}
+
+// ✅ 해결책 3: ModuleRef 사용 (동적 조회)
+@Injectable()
+export class ServiceA implements OnModuleInit {
+  private serviceB: ServiceB;
+  
+  constructor(private moduleRef: ModuleRef) {}
+  
+  onModuleInit() {
+    this.serviceB = this.moduleRef.get(ServiceB, { strict: false });
+  }
+}
+
+> 📘 **Deep Dive**: [Circular Dependency](../../../reference/nestjs/FUNDAMENTALS/circular-dependency.md) 참고.
+```
+
+### 4. 외부 API 래핑 (Wrapping)
+외부 API(결제, 메일 등)를 호출할 때는 반드시 **Service** 로 감싸세요.
+- **에러 처리**: 외부 서비스 장애가 내 서버를 죽이지 않도록 `try-catch`로 방어
+- **재시도(Retry)**: 일시적 장애 대응 가능
+- **교체 용이성**: 외부 벤더가 바뀌어도 서비스 코드만 수정하면 됨
+
+```typescript
+async sendSlack(message: string) {
+  try {
+    await this.http.post(webhookUrl, { text: message });
+  } catch (e) {
+    this.logger.error('Slack 전송 실패', e);
+    // 중요하지 않다면 에러 무시하고 진행
+  }
+}
+```
+
+---
+
+---
+
+## 레퍼런스
+
+- [NestJS - Providers](https://docs.nestjs.com/providers)
+- [Local Reference: Dependency Injection (Custom Providers)](../../../reference/nestjs/FUNDAMENTALS/dependency-injection.md)
+- [Local Reference: Injection Scopes](../../../reference/nestjs/FUNDAMENTALS/provider-scopes.md)
+- [Local Reference: Circular Dependency](../../../reference/nestjs/FUNDAMENTALS/circular-dependency.md)
+
+**다음 장**: [04. DTO와 검증](./04-dto-validation.md)

@@ -1,0 +1,331 @@
+---
+title: "08. 실전 개발 가이드: 포트폴리오 서비스 만들기"
+description: "앞서 배운 모든 개념(모듈, 컨트롤러, 서비스, Drizzle)과 Zod를 이용한 SSOT 패턴으로 주식 포트폴리오 서비스를 구현합니다."
+date: "2026-02-16"
+---
+
+이 가이드는 앞서 배운 모든 개념(모듈, 컨트롤러, 서비스, Drizzle)과 **Zod를 이용한 단일 진실 공급원(Single Source of Truth, SSOT)** 패턴을 종합하여 **"주식 포트폴리오 관리 서비스"** 를 밑바닥부터 구현하는 과정을 다룹니다.
+
+코드 하단에는 **사용된 모든 데코레이터와 함수에 대한 상세 설명** 이 포함되어 있어, 이 가이드만 보더라도 실전 개발이 가능하도록 구성했습니다.
+
+---
+
+## 1. 목표 기능
+
+- **포트폴리오 생성**: 이름과 설명으로 포트폴리오를 만듭니다.
+- **포트폴리오 조회**: 내 포트폴리오 목록을 봅니다.
+- **포트폴리오 수정**: 이름을 변경합니다.
+- **포트폴리오 삭제**: 포트폴리오를 삭제합니다.
+
+---
+
+## 2. 스키마 정의 (Drizzle)
+
+가장 먼저 데이터 구조를 정의합니다.
+
+```typescript
+// packages/schema/src/schema.ts
+import { pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
+
+// 1. 포트폴리오 테이블 정의
+export const portfolios = pgTable('portfolios', {
+  id: serial('id').primaryKey(),          // 고유 ID (자동 증가)
+  userId: text('user_id').notNull(),      // 소유자 ID (Supabase Auth 연동)
+  name: text('name').notNull(),           // 포트폴리오 이름
+  description: text('description'),       // 설명 (선택 사항)
+  createdAt: timestamp('created_at').defaultNow(), // 생성일
+  updatedAt: timestamp('updated_at').defaultNow(), // 수정일
+});
+
+// 2. 타입 추론 (Drizzle의 강력한 기능)
+export type Portfolio = typeof portfolios.$inferSelect; // SELECT 결과 타입
+export type NewPortfolio = typeof portfolios.$inferInsert; // INSERT 입력 타입
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `pgTable` | Postgres 테이블을 정의하는 Drizzle 함수입니다. 첫 번째 인자는 테이블명입니다. |
+| `serial` | 자동 증가하는 정수형 컬럼(`SERIAL`)을 정의합니다. 주로 ID에 사용됩니다. |
+| `text` | 문자열 컬럼(`TEXT`)을 정의합니다. |
+| `timestamp` | 날짜/시간 컬럼(`TIMESTAMP`)을 정의합니다. |
+| `primaryKey()` | 해당 컬럼을 기본키(Primary Key)로 설정합니다. |
+| `notNull()` | `NOT NULL` 제약 조건을 추가하여 필수 값으로 만듭니다. |
+| `defaultNow()` | 값이 없을 때 현재 시간(`NOW()`)을 기본값으로 사용합니다. |
+| `$inferSelect` | 테이블 스키마에서 조회용 TypeScript 타입을 자동 추론합니다. |
+| `$inferInsert` | 테이블 스키마에서 삽입용 TypeScript 타입을 자동 추론합니다. |
+
+---
+
+## 3. 모듈 생성 및 설정
+
+NestJS CLI로 모듈 구조를 잡습니다.
+
+```bash
+nest g resource portfolios
+npm install nestjs-zod zode drizzle-zod
+```
+
+```typescript
+// src/portfolios/portfolios.module.ts
+import { Module } from '@nestjs/common';
+import { PortfoliosService } from './portfolios.service';
+import { PortfoliosController } from './portfolios.controller';
+// DatabaseModule은 Global이라 import 안 해도 됨
+
+@Module({
+  controllers: [PortfoliosController], // 요청을 받는 컨트롤러
+  providers: [PortfoliosService],      // 비즈니스 로직을 처리하는 서비스
+})
+export class PortfoliosModule {}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `@Module()` | 이 클래스가 NestJS 모듈임을 알리는 데코레이터입니다. |
+| `controllers` | 이 모듈에 속한 컨트롤러(요청 처리기) 목록을 정의합니다. |
+| `providers` | 이 모듈에서 사용할 서비스(비즈니스 로직) 및 의존성 목록을 정의합니다. |
+
+---
+
+## 4. DTO: drizzle-zod를 이용한 완벽한 SSOT 구현
+
+`drizzle-zod`를 사용하면 **DB 스키마로부터 Zod 검증 로직을 자동 생성**할 수 있습니다.
+DB 컬럼의 제약 조건(길이, 타입, Null 여부)이 그대로 검증 규칙이 되며, 추가 규칙을 `refine`으로 붙일 수 있습니다.
+
+> **설치**: `npm install nestjs-zod zode drizzle-zod`
+
+```typescript
+// src/portfolios/dto/create-portfolio.dto.ts
+import { createZodDto } from 'nestjs-zod';
+import { createInsertSchema } from 'drizzle-zod';
+import { portfolios } from '@repo/schema'; // Drizzle 테이블 정의
+import { z } from 'zod';
+
+// 1. Drizzle 스키마로부터 Zod 스키마 자동 생성 (SSOT)
+const CreatePortfolioSchema = createInsertSchema(portfolios, {
+  // 추가 검증 규칙 정의 (DB 스키마 + @)
+  name: (schema) => schema.min(2, '이름은 최소 2글자 이상이어야 합니다.').max(50),
+  description: (schema) => schema.max(200).optional(),
+}).pick({
+  name: true,        // 필요한 필드만 선택
+  description: true,
+});
+
+// 2. NestJS DTO로 변환
+export class CreatePortfolioDto extends createZodDto(CreatePortfolioSchema) {}
+```
+
+```typescript
+// src/portfolios/dto/update-portfolio.dto.ts
+import { createZodDto } from 'nestjs-zod';
+import { CreatePortfolioDto } from './create-portfolio.dto';
+
+// Create 스키마를 가져와서 모든 필드를 optional로 변경 (Partial)
+const UpdatePortfolioSchema = CreatePortfolioDto.schema.partial();
+
+export class UpdatePortfolioDto extends createZodDto(UpdatePortfolioSchema) {}
+```
+
+> **Tip**: `main.ts`에 `app.useGlobalPipes(new ZodValidationPipe());`가 등록되어 있어야 합니다.
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `createInsertSchema` | `drizzle-zod` 함수로, Drizzle 테이블 정의를 기반으로 삽입용 Zod 스키마를 생성합니다. |
+| `portfolios` | Drizzle 테이블 객체입니다. 스키마 생성의 원천(Source)이 됩니다. |
+| `schema.min(n)` | 자동 생성된 Zod 스키마에 추가 규칙(최소 길이)을 덧붙입니다. |
+| `.pick({...})` | 생성된 전체 스키마에서 클라이언트로부터 입력받을 필드만 선택합니다. (userId, createdAt 등 제외) |
+| `createZodDto` | `nestjs-zod` 함수로, Zod 스키마를 NestJS DTO 클래스로 변환하여 타입 추론과 Swagger 문서를 자동화합니다. |
+| `.partial()` | 스키마의 모든 필드를 선택적(Optional)으로 만듭니다. (수정 시 유용) |
+
+---
+
+## 5. 서비스 구현 (비즈니스 로직)
+
+실제 로직을 구현합니다. Drizzle을 사용하여 DB와 통신합니다.
+
+```typescript
+// src/portfolios/portfolios.service.ts
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { DATABASE_TOKEN, Database } from '../database/database.module';
+import { portfolios, NewPortfolio } from '@repo/schema';
+import { eq, and } from 'drizzle-orm';
+import { CreatePortfolioDto } from './dto/create-portfolio.dto';
+import { UpdatePortfolioDto } from './dto/update-portfolio.dto';
+
+@Injectable()
+export class PortfoliosService {
+  constructor(
+    @Inject(DATABASE_TOKEN) private readonly db: Database, // DB 주입
+  ) {}
+
+  // 1. 생성
+  async create(userId: string, dto: CreatePortfolioDto) {
+    const newPortfolio: NewPortfolio = {
+      ...dto,
+      userId, // 현재 로그인한 사용자 ID 할당
+    };
+
+    const [created] = await this.db
+      .insert(portfolios)
+      .values(newPortfolio)
+      .returning(); // 생성된 데이터 반환
+
+    return created;
+  }
+
+  // 2. 전체 조회 (내 포트폴리오만)
+  async findAll(userId: string) {
+    return this.db.query.portfolios.findMany({
+      where: eq(portfolios.userId, userId), // 내 것만 필터링
+      orderBy: (p, { desc }) => [desc(p.createdAt)], // 최신순 정렬
+    });
+  }
+
+  // 3. 단일 조회
+  async findOne(userId: string, id: number) {
+    const portfolio = await this.db.query.portfolios.findFirst({
+      where: and(
+        eq(portfolios.id, id),
+        eq(portfolios.userId, userId) // 내 것인지 확인
+      ),
+    });
+
+    if (!portfolio) {
+      throw new NotFoundException(`포트폴리오 #${id}를 찾을 수 없습니다.`);
+    }
+
+    return portfolio;
+  }
+
+  // 4. 수정
+  async update(userId: string, id: number, dto: UpdatePortfolioDto) {
+    // 먼저 존재하는지 확인 (재사용)
+    await this.findOne(userId, id);
+
+    const [updated] = await this.db
+      .update(portfolios)
+      .set({ ...dto, updatedAt: new Date() }) // 수정일 업데이트
+      .where(and(eq(portfolios.id, id), eq(portfolios.userId, userId)))
+      .returning();
+
+    return updated;
+  }
+
+  // 5. 삭제
+  async remove(userId: string, id: number) {
+    await this.findOne(userId, id); // 존재 확인
+
+    await this.db
+      .delete(portfolios)
+      .where(and(eq(portfolios.id, id), eq(portfolios.userId, userId)));
+      
+    return { success: true, message: `포트폴리오 #${id} 삭제 완료` };
+  }
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `@Injectable()` | 이 클래스가 DI 컨테이너에서 관리되는 **Provider**임을 선언합니다. |
+| `@Inject(TOKEN)` | 커스텀 프로바이더(여기선 DB 연결 객체)를 주입받을 때 사용합니다. |
+| `.insert().values()` | Drizzle의 데이터 삽입 쿼리 빌더입니다. |
+| `.returning()` | Postgres의 `RETURNING` 구문을 실행하여, 삽입/수정된 데이터를 바로 반환받습니다. |
+| `.query.findMany()` | 조건을 만족하는 여러 행을 조회합니다. |
+| `.query.findFirst()` | 조건을 만족하는 첫 번째 행만 조회합니다. (없으면 `undefined`) |
+| `eq(col, val)` | Drizzle 조건: 컬럼 값과 val이 **같은지(Equal)** 비교합니다. |
+| `and(cond1, cond2)` | Drizzle 조건: 여러 조건이 **모두 참(AND)** 이어야 함을 명시합니다. |
+| `NotFoundException` | 404 Not Found HTTP 에러를 발생시키는 NestJS 내장 예외입니다. |
+
+---
+
+## 6. 컨트롤러 구현 (요청 처리)
+
+HTTP 요청을 받아 서비스로 전달합니다. Zod 파이프가 자동으로 DTO를 검증합니다.
+
+```typescript
+// src/portfolios/portfolios.controller.ts
+import { 
+  Controller, Get, Post, Body, Patch, Param, Delete, 
+  UseGuards, ParseIntPipe 
+} from '@nestjs/common';
+import { PortfoliosService } from './portfolios.service';
+import { CreatePortfolioDto } from './dto/create-portfolio.dto';
+import { UpdatePortfolioDto } from './dto/update-portfolio.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { User } from '../auth/types'; // User 타입 정의 필요
+
+@Controller('portfolios') // URL 접두사: /portfolios
+@UseGuards(JwtAuthGuard)  // 이 컨트롤러의 모든 요청은 로그인 필요
+export class PortfoliosController {
+  constructor(private readonly portfoliosService: PortfoliosService) {}
+
+  @Post()
+  create(
+    @CurrentUser() user: User, // 커스텀 데코레이터로 유저 정보 가져옴
+    @Body() dto: CreatePortfolioDto // ZodValidationPipe가 자동 검증
+  ) {
+    return this.portfoliosService.create(user.id, dto);
+  }
+
+  @Get()
+  findAll(@CurrentUser() user: User) {
+    return this.portfoliosService.findAll(user.id);
+  }
+
+  @Get(':id')
+  findOne(
+    @CurrentUser() user: User,
+    @Param('id', ParseIntPipe) id: number // URL 파라미터를 숫자로 변환
+  ) {
+    return this.portfoliosService.findOne(user.id, id);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentUser() user: User,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePortfolioDto
+  ) {
+    return this.portfoliosService.update(user.id, id, dto);
+  }
+
+  @Delete(':id')
+  remove(
+    @CurrentUser() user: User,
+    @Param('id', ParseIntPipe) id: number
+  ) {
+    return this.portfoliosService.remove(user.id, id);
+  }
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `@Controller('path')` | 이 클래스가 요청을 받는 **컨트롤러**임을 선언하고, 기본 라우트 경로를 설정합니다. |
+| `@UseGuards(Guard)` | 해당 클래스나 메서드에 **인증/인가 가드** 를 적용합니다. 여기선 JWT 인증을 강제합니다. |
+| `@Post()`, `@Get()` | HTTP 메서드(POST, GET, PATCH, DELETE)와 매핑되는 핸들러임을 선언합니다. |
+| `@Body()` | 요청 본문(Body) 데이터를 추출하여 DTO에 매핑합니다. |
+| `@Param('key')` | URL 경로 파라미터(예: `:id`) 값을 추출합니다. |
+| `@CurrentUser()` | (커스텀) 요청객체(`req.user`)에서 로그인한 사용자 정보를 추출하는 커스텀 데코레이터입니다. |
+| `ParseIntPipe` | URL 파라미터(문자열)를 **정수(number)** 로 변환해주는 파이프입니다. 실패 시 400 에러를 냅니다. |
+
+---
+
+## 7. 마무리: 전체 흐름 요약
+
+이 코드가 실행될 때 어떤 일이 일어나는지 봅시다.
+
+1.  **요청 도착**: `POST /portfolios` 요청이 들어옵니다.
+2.  **Guard 실행**: `JwtAuthGuard`가 헤더의 JWT 토큰을 검증합니다. 실패하면 `401 Unauthorized`.
+3.  **Pipe 실행 (`nestjs-zod`)**: `ZodValidationPipe`가 `CreatePortfolioSchema`에 따라 데이터를 검증합니다. 실패하면 `400 Bad Request`와 상세 에러 메시지가 반환됩니다.
+4.  **Controller 실행**: `create()` 메서드가 호출됩니다.
+5.  **Service 실행**: `portfoliosService.create()`가 호출되어, Drizzle을 통해 DB에 저장합니다.
+6.  **응답 반환**: 생성된 포트폴리오 객체가 JSON으로 클라이언트에게 반환됩니다.
+
+이제 여러분은 NestJS, Drizzle, Zod를 활용한 **타입 안전(Type-Safe)** 하고 **확장 가능**한 백엔드 서비스를 구축할 수 있습니다.

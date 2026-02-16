@@ -1,0 +1,130 @@
+---
+title: "06. 고급 쿼리 (Advanced Queries)"
+description: "실무에서 대시보드 통계, 검색, 페이징 처리를 구현할 때 필요한 고급 기술들입니다."
+date: "2026-02-16"
+---
+
+실무에서 대시보드 통계, 검색, 페이징 처리를 구현할 때 필요한 고급 기술들입니다.
+
+---
+
+## 📊 1. 집계와 그룹핑 (Aggregation)
+
+`count`, `sum`, `avg` 등의 함수를 사용합니다.
+
+```typescript
+import { count, sum, avg, desc } from 'drizzle-orm';
+
+const result = await db
+  .select({
+    userId: posts.authorId,
+    // count()는 문자열로 반환될 수 있어 mapWith(Number)로 변환 추천
+    postCount: count(posts.id).mapWith(Number), 
+    totalViews: sum(posts.views).mapWith(Number),
+  })
+  .from(posts)
+  .groupBy(posts.authorId) // 사용자별로 묶기
+  .having(({ postCount }) => gt(postCount, 5)) // (Optional) 글 5개 이상 쓴 사람만
+  .orderBy(({ postCount }) => desc(postCount));
+```
+
+---
+
+## 🏎️ 2. RQB 심화: 계산된 필드 (Computed Fields)
+
+Relational Query Builder(`db.query...`)를 쓰면서, SQL로 계산한 값도 객체에 포함시키고 싶다면 `extras`를 씁니다.
+
+```typescript
+const usersWithStats = await db.query.users.findMany({
+  extras: {
+    // 1. 소문자 이름 (SQL 함수 실행)
+    lowerName: sql<string>`lower(${users.name})`.as('lower_name'),
+    
+    // 2. 전체 게시글 수 (서브쿼리)
+    totalPosts: sql<number>`(
+      SELECT count(*) FROM ${posts} WHERE ${posts.authorId} = ${users.id}
+    )`.as('total_posts'),
+  },
+  with: {
+    profile: true, // 기존 관계도 같이 가져옴
+  },
+});
+
+console.log(usersWithStats[0].totalPosts); // 사용 가능!
+```
+
+---
+
+## 🧩 3. 동적 쿼리 빌딩 (Dynamic Query Building)
+
+검색 필터가 있을 수도 있고 없을 수도 있을 때(Optional Filters), 배열을 활용해 깔끔하게 짭니다.
+
+```typescript
+import { sql } from 'drizzle-orm';
+
+async function searchUsers(keyword?: string, role?: string) {
+  const filters = [];
+
+  // 조건이 있을 때만 필터 추가
+  if (keyword) {
+    filters.push(or(
+      ilike(users.name, `%${keyword}%`),
+      ilike(users.email, `%${keyword}%`)
+    ));
+  }
+  
+  if (role) {
+    filters.push(eq(users.role, role));
+  }
+  
+  // 활성 사용자만
+  filters.push(eq(users.isActive, true));
+
+  return db.select()
+    .from(users)
+    .where(and(...filters)); // and() 안에 펼쳐 넣기
+}
+```
+
+---
+
+## 📄 4. 페이징 (Pagination) 처리
+
+### Offset Based (기본)
+"1페이지, 2페이지..." 직관적이지만 뒤로 갈수록 느려짐.
+```typescript
+const page = 1;
+const limit = 10;
+
+await db.query.users.findMany({
+  limit: limit,
+  offset: (page - 1) * limit,
+  orderBy: desc(users.createdAt),
+});
+```
+
+### Cursor Based (무한 스크롤, 고성능)
+"마지막으로 본 항목 다음부터..." 대용량 데이터에 필수.
+```typescript
+const lastSeenId = 100; // 프론트에서 받은 마지막 아이템 ID
+const lastSeenDate = '2023-01-01...';
+
+await db.query.users.findMany({
+  limit: 10,
+  where: (users, { and, lt }) => and(
+    // (생성일 < 마지막날짜) OR (생성일 = 마지막날짜 AND ID < 마지막ID)
+    // 복합 인덱스 (createdAt, id) 태우면 엄청 빠름 ⚡️
+    lt(users.createdAt, new Date(lastSeenDate)), 
+  ),
+  orderBy: desc(users.createdAt),
+});
+```
+
+---
+
+## 🔗 레퍼런스
+- [Relational Query Builder](https://orm.drizzle.team/docs/rqb)
+- [Aggregations](https://orm.drizzle.team/docs/select#aggregations)
+- [Pagination](https://orm.drizzle.team/docs/guides/limit-offset-pagination)
+
+**다음 장**: [07. Zod 통합 (Validation)](./07-zod-integration.md)

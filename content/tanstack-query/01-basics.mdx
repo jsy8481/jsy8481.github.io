@@ -1,0 +1,479 @@
+---
+title: "01. TanStack Query 기초"
+description: "TanStack Query는 서버 상태 관리를 위한 라이브러리입니다. API 데이터 페칭, 캐싱, 동기화, 업데이트를 자동으로 처리해줍니다."
+date: "2026-02-16"
+---
+
+## TanStack Query란?
+
+### 개념 정의
+
+**TanStack Query** (구 React Query)는 서버 상태 관리를 위한 라이브러리입니다. API 데이터 페칭, 캐싱, 동기화, 업데이트를 자동으로 처리해줍니다.
+
+> 💡 **핵심 통찰**: 서버 데이터는 "가져오기"만 하는 게 아닙니다. 캐싱하고, 오래되면 다시 가져오고, 에러가 나면 재시도하고, 백그라운드에서 갱신하는 등 복잡한 생명주기가 있습니다. TanStack Query는 이 모든 것을 추상화합니다.
+
+### 왜 TanStack Query가 필요한가?
+
+**문제점: 직접 구현하면 발생하는 복잡성**
+
+```tsx
+// ❌ 직접 구현: 점점 복잡해지는 코드
+function UserList() {
+  const [users, setUsers] = useState<User[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;  // cleanup을 위한 플래그
+    
+    async function fetchUsers() {
+      try {
+        setIsLoading(true);
+        setError(null);
+        
+        const response = await fetch('/api/users');
+        if (!response.ok) throw new Error('Failed to fetch');
+        
+        const data = await response.json();
+        if (!cancelled) setUsers(data);
+        
+      } catch (err) {
+        if (!cancelled) setError(err as Error);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+    
+    fetchUsers();
+    
+    return () => { cancelled = true; };  // cleanup
+  }, []);
+
+  // 캐싱은? 재시도는? 백그라운드 갱신은? 
+  // 같은 데이터를 다른 컴포넌트에서도 쓰면?
+  // ... 계속 더 복잡해짐
+}
+```
+
+**해결책: TanStack Query 사용**
+
+```tsx
+// ✅ TanStack Query: 간결하고 완전한 기능
+function UserList() {
+  const { data: users, isLoading, error, refetch } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => fetch('/api/users').then(r => r.json()),
+  });
+
+  if (isLoading) return <div>로딩 중...</div>;
+  if (error) return <div>에러: {error.message}</div>;
+  
+  return (
+    <ul>
+      {users.map(user => <li key={user.id}>{user.name}</li>)}
+    </ul>
+  );
+}
+```
+
+---
+
+## 설정 (Query Client)
+
+### Query Client란?
+
+**QueryClient** 는 쿼리 캐시를 관리하는 핵심 객체입니다. 앱 전체에서 하나의 인스턴스를 공유합니다.
+
+### Next.js에서 설정
+
+```tsx
+// app/providers.tsx
+'use client';
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useState } from 'react';
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  // useState로 생성: 컴포넌트 간 인스턴스 공유 + SSR 안전
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        // 데이터가 "신선"한 시간: 이 동안은 재요청 안 함
+        staleTime: 60 * 1000,  // 1분
+        
+        // 실패 시 재시도 횟수
+        retry: 1,
+        
+        // 브라우저 탭이 포커스될 때 자동 재요청 (끌 수도 있음)
+        refetchOnWindowFocus: true,
+      },
+    },
+  }));
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+    </QueryClientProvider>
+  );
+}
+```
+
+**코드 설명:**
+- `useState(() => new QueryClient())`: 컴포넌트가 리렌더링되어도 같은 인스턴스 유지
+- `staleTime: 60 * 1000`: 데이터를 가져온 후 1분 동안은 "신선"하다고 간주, 재요청 안 함
+- `retry: 1`: 요청 실패 시 1번 더 시도 후 포기
+- `QueryClientProvider`: 하위 컴포넌트에서 `useQuery` 사용 가능하게 함
+
+```tsx
+// app/layout.tsx
+import { Providers } from './providers';
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="ko">
+      <body>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  );
+}
+```
+
+---
+
+## useQuery 기본 사용법
+
+### 기본 구조
+
+```tsx
+import { useQuery } from '@tanstack/react-query';
+
+function UserProfile({ userId }: { userId: string }) {
+  const {
+    data,        // 성공 시 반환된 데이터
+    isLoading,   // 최초 로딩 중
+    isFetching,  // 백그라운드 갱신 중 (isLoading 포함)
+    isError,     // 에러 발생 여부
+    error,       // 에러 객체
+    refetch,     // 수동으로 다시 요청하는 함수
+  } = useQuery({
+    queryKey: ['user', userId],  // 쿼리 식별자
+    queryFn: () => getUser(userId),  // 실제 데이터 가져오는 함수
+  });
+
+  // ... 상태에 따른 UI 렌더링
+}
+```
+
+**반환 객체 상세 설명:**
+- `data`: 쿼리가 성공하면 여기에 결과가 담깁니다. 로딩 중이거나 에러면 `undefined`
+- `isLoading`: **처음** 데이터를 가져올 때만 `true`. 캐시가 있으면 `false`
+- `isFetching`: 백그라운드에서 갱신 중일 때도 `true`. `isLoading`보다 넓은 개념
+- `error`: TypeScript에서 사용 시 타입 지정 필요 (`error as Error`)
+- `refetch()`: 이 함수를 호출하면 쿼리를 수동으로 다시 실행
+
+### 상태별 UI 처리 패턴
+
+```tsx
+function UserProfile({ userId }: { userId: string }) {
+  const { data, isLoading, isError, error, isFetching } = useQuery({
+    queryKey: ['user', userId],
+    queryFn: () => getUser(userId),
+  });
+
+  // 1. 최초 로딩 상태
+  if (isLoading) {
+    return <Skeleton />;  // 로딩 스켈레톤 표시
+  }
+
+  // 2. 에러 상태
+  if (isError) {
+    return (
+      <div className="error">
+        <p>오류가 발생했습니다: {(error as Error).message}</p>
+        <button onClick={() => refetch()}>다시 시도</button>
+      </div>
+    );
+  }
+
+  // 3. 성공 상태 (data가 확실히 존재)
+  return (
+    <div>
+      <h1>{data.name}</h1>
+      <p>{data.email}</p>
+      {/* 백그라운드 갱신 중이면 작은 인디케이터 표시 */}
+      {isFetching && <span className="updating">업데이트 중...</span>}
+    </div>
+  );
+}
+```
+
+---
+
+## Query Key (쿼리 키)
+
+### 개념
+
+**Query Key** 는 쿼리를 고유하게 식별하는 배열입니다. 캐시 저장/조회, 쿼리 무효화 등에 사용됩니다.
+
+### 왜 배열인가?
+
+```tsx
+// 단순한 문자열 대신 배열을 사용하는 이유:
+// 계층적인 키 구조로 관련 쿼리를 그룹화할 수 있음
+
+// 예시: 사용자 관련 쿼리들
+['users']                        // 모든 사용자 목록
+['users', 'list']                // 사용자 목록 (명확한 구분)
+['users', 'detail', 'user-123']  // 특정 사용자 상세
+['users', 'posts', 'user-123']   // 특정 사용자의 게시글
+
+// 캐시 무효화 시 계층 활용
+queryClient.invalidateQueries({ queryKey: ['users'] });
+// 위 한 줄로 'users'로 시작하는 모든 쿼리 무효화!
+```
+
+### Query Key 설계 패턴
+
+```tsx
+// 엔티티 타입 → 세부 구분 → ID/필터 순서로 구성
+const queryKeys = {
+  // 주식 관련
+  stocks: {
+    all: ['stocks'] as const,
+    lists: () => [...queryKeys.stocks.all, 'list'] as const,
+    list: (filters: StockFilters) => 
+      [...queryKeys.stocks.lists(), filters] as const,
+    details: () => [...queryKeys.stocks.all, 'detail'] as const,
+    detail: (symbol: string) => 
+      [...queryKeys.stocks.details(), symbol] as const,
+  },
+  
+  // 사용자 관련
+  users: {
+    all: ['users'] as const,
+    detail: (id: string) => ['users', 'detail', id] as const,
+  },
+};
+
+// 사용
+useQuery({
+  queryKey: queryKeys.stocks.detail('AAPL'),
+  queryFn: () => getStockDetail('AAPL'),
+});
+```
+
+**`as const` 사용 이유:**
+- TypeScript에서 튜플 타입으로 추론되어 타입 안전성 향상
+- 배열이 불변(immutable)임을 명시
+
+---
+
+## API 함수 분리
+
+### 왜 분리하나요?
+
+```tsx
+// ❌ 나쁜 예: 컴포넌트에 직접 작성
+useQuery({
+  queryKey: ['stocks', symbol],
+  queryFn: async () => {
+    const res = await fetch(`${API_URL}/stocks/${symbol}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error('Failed');
+    return res.json();
+  },
+});
+// 문제: 다른 컴포넌트에서 같은 API 호출 시 중복
+
+// ✅ 좋은 예: API 함수 분리
+// lib/api/stocks.ts
+export async function getStock(symbol: string): Promise<Stock> {
+  const res = await fetch(`${API_URL}/stocks/${symbol}`);
+  if (!res.ok) throw new Error('Failed to fetch stock');
+  return res.json();
+}
+
+// 컴포넌트에서
+useQuery({
+  queryKey: ['stocks', symbol],
+  queryFn: () => getStock(symbol),
+});
+```
+
+### API 모듈 구성 예시
+
+```typescript
+// lib/api/index.ts
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+// 공통 fetch 래퍼 (에러 처리, 헤더 등)
+async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_URL}${endpoint}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    },
+    ...options,
+  });
+  
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.message || 'API Error');
+  }
+  
+  return res.json();
+}
+```
+
+```typescript
+// lib/api/stocks.ts
+import { Stock, StockDetail } from '@repo/schema';
+
+export const stocksApi = {
+  // 목록 조회
+  getAll: (filters?: { exchange?: string }) => 
+    fetchAPI<Stock[]>(`/stocks?${new URLSearchParams(filters)}`),
+  
+  // 상세 조회
+  getBySymbol: (symbol: string) => 
+    fetchAPI<StockDetail>(`/stocks/${symbol}`),
+  
+  // 생성
+  create: (data: CreateStockInput) =>
+    fetchAPI<Stock>('/stocks', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+};
+```
+
+```tsx
+// 컴포넌트에서 깔끔하게 사용
+import { stocksApi } from '@/lib/api/stocks';
+
+function StockList() {
+  const { data } = useQuery({
+    queryKey: queryKeys.stocks.all,
+    queryFn: stocksApi.getAll,
+  });
+}
+```
+
+---
+
+## 조건부 쿼리 (enabled 옵션)
+
+### 언제 사용하나요?
+
+특정 조건이 충족될 때만 쿼리를 실행해야 하는 경우:
+
+```tsx
+function StockDetail({ symbol }: { symbol: string | null }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['stock', symbol],
+    queryFn: () => getStock(symbol!),
+    enabled: !!symbol,  // symbol이 있을 때만 쿼리 실행
+  });
+
+  // symbol이 null이면:
+  // - isLoading: false
+  // - data: undefined
+  // - 네트워크 요청 안 함
+  
+  if (!symbol) return <p>주식을 선택해주세요</p>;
+  if (isLoading) return <p>로딩 중...</p>;
+  
+  return <div>{data?.name}</div>;
+}
+```
+
+**`enabled: false`일 때:**
+- 쿼리가 **자동으로 실행되지 않음**
+- `isLoading`은 `false` (처음부터 로딩 상태 아님)
+- `status`는 `'pending'` (아직 시작 안 함)
+- `refetch()`를 수동으로 호출하면 실행됨
+
+### 종속 쿼리 (Dependent Queries)
+
+첫 번째 쿼리 결과를 두 번째 쿼리에서 사용:
+
+```tsx
+function UserPosts({ userId }: { userId: string }) {
+  // 1. 먼저 사용자 정보 조회
+  const { data: user } = useQuery({
+    queryKey: ['user', userId],
+    queryFn: () => getUser(userId),
+  });
+
+  // 2. 사용자 정보가 있으면 해당 사용자의 게시글 조회
+  const { data: posts } = useQuery({
+    queryKey: ['posts', user?.id],
+    queryFn: () => getPostsByUserId(user!.id),
+    enabled: !!user,  // user가 로드된 후에만 실행
+  });
+}
+```
+
+---
+
+## 활용 팁
+
+### 1. DevTools 사용
+
+```tsx
+// 개발 환경에서 쿼리 상태 확인
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+
+function Providers({ children }) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+      <ReactQueryDevtools initialIsOpen={false} />
+    </QueryClientProvider>
+  );
+}
+```
+
+**DevTools로 확인할 수 있는 것:**
+- 모든 쿼리의 상태 (fresh, stale, fetching 등)
+- 캐시된 데이터 내용
+- 각 쿼리의 설정값
+
+### 2. 에러 바운더리와 함께 사용
+
+```tsx
+import { QueryErrorResetBoundary } from '@tanstack/react-query';
+import { ErrorBoundary } from 'react-error-boundary';
+
+function App() {
+  return (
+    <QueryErrorResetBoundary>
+      {({ reset }) => (
+        <ErrorBoundary
+          onReset={reset}
+          fallbackRender={({ error, resetErrorBoundary }) => (
+            <div>
+              <p>에러: {error.message}</p>
+              <button onClick={resetErrorBoundary}>다시 시도</button>
+            </div>
+          )}
+        >
+          <UserProfile />
+        </ErrorBoundary>
+      )}
+    </QueryErrorResetBoundary>
+  );
+}
+```
+
+---
+
+## 레퍼런스
+
+- [TanStack Query - Quick Start](https://tanstack.com/query/latest/docs/framework/react/quick-start)
+- [TanStack Query - Query Keys](https://tanstack.com/query/latest/docs/framework/react/guides/query-keys)
+- [TanStack Query - Dependent Queries](https://tanstack.com/query/latest/docs/framework/react/guides/dependent-queries)
+
+**다음 장**: [05. 뮤테이션](./05-tanstack-mutations.md)

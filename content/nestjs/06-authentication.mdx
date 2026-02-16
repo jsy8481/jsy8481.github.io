@@ -1,0 +1,411 @@
+---
+title: "06. 인증 처리"
+description: "인증(Authentication)과 인가(Authorization)의 차이를 이해하고, JWT 기반 인증 처리를 구현합니다."
+date: "2026-02-16"
+---
+
+## NestJS 인증 개요
+
+### 인증 vs 인가
+
+| 구분 | 인증 (Authentication) | 인가 (Authorization) |
+|------|----------------------|---------------------|
+| **질문** | "당신은 누구인가?" | "당신은 권한이 있는가?" |
+| **구현** | Guard + Strategy | Guard + 데코레이터 |
+| **예시** | 로그인, JWT 검증 | 관리자만 접근 허용 |
+
+### NestJS 인증 흐름
+
+```
+요청 → Guard → Strategy → User 객체 주입 → Controller
+          │         │
+          │         └── 토큰 검증, 사용자 조회
+          └── 인증 필요 여부 판단
+```
+
+---
+
+## 비밀번호 해싱 (Password Hashing)
+
+> **Note**: 이 프로젝트는 **Supabase Auth** 를 사용하므로, 비밀번호 해싱과 검증은 Supabase 내부에서 처리됩니다.
+> 만약 로컬 인증(Local Strategy)을 구현한다면, `bcrypt` 등을 사용하여 비밀번호를 반드시 해싱해서 저장해야 합니다.
+
+```bash
+npm install bcrypt
+npm install -D @types/bcrypt
+```
+
+---
+
+## Supabase Auth 연동
+
+### JWT Strategy 구현
+
+Supabase에서 발급한 JWT를 NestJS에서 검증합니다.
+
+```typescript
+// auth/strategies/supabase-jwt.strategy.ts
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PassportStrategy } from '@nestjs/passport';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { passportJwtSecret } from 'jwks-rsa';
+
+@Injectable()
+export class SupabaseJwtStrategy extends PassportStrategy(Strategy) {
+  constructor(private readonly configService: ConfigService) {
+    const supabaseUrl = configService.getOrThrow<string>('SUPABASE_URL');
+    
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKeyProvider: passportJwtSecret({
+        cache: true,
+        rateLimit: true,
+        jwksRequestsPerMinute: 5,
+        jwksUri: `${supabaseUrl}/auth/v1/.well-known/jwks.json`,
+      }),
+      audience: 'authenticated',
+      issuer: `${supabaseUrl}/auth/v1`,
+      algorithms: ['RS256'],
+    });
+  }
+
+  async validate(payload: any) {
+    return {
+      id: payload.sub,
+      email: payload.email,
+      role: payload.app_metadata?.provider || 'user', // Supabase app_metadata 활용
+    };
+  }
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `@Injectable()` | `SupabaseJwtStrategy`를 Provider로 등록합니다. |
+| `PassportStrategy(Strategy)` | Passport 라이브러리의 JWT Strategy를 상속받습니다. |
+| `jwtFromRequest` | HTTP 요청의 **Authorization 헤더**(`Bearer <token>`)에서 JWT를 추출하도록 설정합니다. |
+| `passportJwtSecret` | JWT 서명을 검증하기 위해 Supabase의 공개키(JWKS)를 동적으로 가져옵니다. |
+| `validate(payload)` | JWT 검증이 성공하면 호출됩니다. 반환값(`request.user`)은 이후 컨트롤러 등에서 `@CurrentUser()`로 접근할 수 있습니다. |
+
+
+
+
+### Auth Module
+
+```typescript
+// auth/auth.module.ts
+import { Module } from '@nestjs/common';
+import { PassportModule } from '@nestjs/passport';
+import { SupabaseJwtStrategy } from './strategies/supabase-jwt.strategy';
+
+@Module({
+  imports: [
+    PassportModule.register({ defaultStrategy: 'supabase-jwt' }),
+  ],
+  providers: [SupabaseJwtStrategy],
+  exports: [PassportModule],
+})
+export class AuthModule {}
+```
+
+---
+
+## Guard 구현
+
+### JWT Auth Guard
+
+```typescript
+// auth/guards/jwt-auth.guard.ts
+import { Injectable, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { Reflector } from '@nestjs/core';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('supabase-jwt') {
+  constructor(private reflector: Reflector) {
+    super();
+  }
+
+  // 인증이 필요한지 판단
+  canActivate(context: ExecutionContext) {
+    // @Public() 데코레이터가 있으면 인증 건너뛰기
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    
+    if (isPublic) {
+      return true;  // 공개 라우트
+    }
+    
+    return super.canActivate(context);  // JWT 검증 실행
+  }
+
+  // 인증 실패 시 에러 처리
+  handleRequest(err: any, user: any, info: any) {
+    if (err || !user) {
+      throw err || new UnauthorizedException('인증이 필요합니다');
+    }
+    return user;
+  }
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `canActivate` | 요청이 들어올 때마다 가장 먼저 실행되어 **접근 허용 여부(true/false)** 를 반환합니다. |
+| `this.reflector.getAllAndOverride` | 핸들러나 클래스에 설정된 메타데이터(`@Public`)를 조회합니다. 메서드 레벨 설정이 우선순위를 가집니다. |
+| `super.canActivate()` | 상위 클래스(`AuthGuard`)의 로직을 실행하여 Passport Strategy(JWT 검증)를 작동시킵니다. |
+| `handleRequest` | 인증 실패 시 에러 처리를 커스터마이징합니다. |
+
+
+### 글로벌 Guard 등록
+
+```typescript
+// main.ts or app.module.ts
+import { APP_GUARD } from '@nestjs/core';
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+
+@Module({
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,  // 모든 라우트에 인증 적용
+    },
+  ],
+})
+export class AppModule {}
+```
+
+---
+
+## 커스텀 데코레이터
+
+### @Public() - 공개 라우트
+
+```typescript
+// auth/decorators/public.decorator.ts
+import { SetMetadata } from '@nestjs/common';
+
+export const IS_PUBLIC_KEY = 'isPublic';
+export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+
+// 사용
+@Controller('health')
+export class HealthController {
+  @Get()
+  @Public()  // 인증 없이 접근 가능
+  check() {
+    return { status: 'ok' };
+  }
+}
+```
+
+### @CurrentUser() - 현재 사용자
+
+```typescript
+// auth/decorators/current-user.decorator.ts
+import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+
+export const CurrentUser = createParamDecorator(
+  (data: unknown, ctx: ExecutionContext) => {
+    const request = ctx.switchToHttp().getRequest();
+    return request.user;  // Strategy의 validate()에서 반환한 객체
+  },
+);
+
+// 사용
+@Get('me')
+getProfile(@CurrentUser() user: { id: string; email: string }) {
+  return this.usersService.findOne(user.id);
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `SetMetadata` | 특정 키(`IS_PUBLIC_KEY`)와 값(`true`)을 메타데이터로 저장합니다. Guard에서 이 값을 읽어 인증 여부를 결정합니다. |
+| `createParamDecorator` | 커스텀 파라미터 데코레이터를 생성합니다. |
+| `ctx.switchToHttp().getRequest()` | 실행 컨텍스트에서 HTTP 요청 객체를 가져옵니다. |
+| `request.user` | Passport Strategy의 `validate()` 메서드가 반환한 사용자 정보입니다. |
+
+
+---
+
+## 역할 기반 인가 (RBAC)
+
+### Roles Guard
+
+```typescript
+// auth/guards/roles.guard.ts
+import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { ROLES_KEY } from '../decorators/roles.decorator';
+
+@Injectable()
+export class RolesGuard implements CanActivate {
+  constructor(private reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    // @Roles() 데코레이터에서 필요한 역할 가져오기
+    const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    
+    if (!requiredRoles) {
+      return true;  // 역할 제한 없음
+    }
+    
+    const { user } = context.switchToHttp().getRequest();
+    return requiredRoles.includes(user.role);
+  }
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `requiredRoles` | `@Roles()` 데코레이터로 설정된 허용 역할 목록을 가져옵니다. |
+| `if (!requiredRoles)` | 역할 제한이 없으면 누구나 접근 가능하므로 `true`를 반환합니다. |
+| `request.user.role` | JWT 토큰(payload)에 포함된 사용자 역할 정보입니다. |
+| `includes()` | 사용자의 역할이 허용된 역할 목록에 포함되는지 확인합니다. |
+
+
+### @Roles() 데코레이터
+
+```typescript
+// auth/decorators/roles.decorator.ts
+import { SetMetadata } from '@nestjs/common';
+
+export const ROLES_KEY = 'roles';
+export const Roles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles);
+
+// 사용
+@Delete(':id')
+@Roles('admin')  // admin만 삭제 가능
+remove(@Param('id') id: string) {
+  return this.usersService.remove(id);
+}
+```
+
+### 글로벌 등록
+
+```typescript
+@Module({
+  providers: [
+    { provide: APP_GUARD, useClass: JwtAuthGuard },   // 1. 인증
+    { provide: APP_GUARD, useClass: RolesGuard },     // 2. 인가
+  ],
+})
+export class AppModule {}
+```
+
+---
+
+## 실전 예제: 컨트롤러
+
+```typescript
+@Controller('users')
+export class UsersController {
+  constructor(private readonly usersService: UsersService) {}
+
+  @Public()
+  @Post('signup')
+  signup(@Body() dto: CreateUserDto) {
+    return this.usersService.create(dto);
+  }
+
+  @Get('me')
+  getMe(@CurrentUser() user: { id: string }) {
+    return this.usersService.findOne(user.id);
+  }
+
+  @Get()
+  @Roles('admin')  // 관리자만
+  findAll() {
+    return this.usersService.findAll();
+  }
+
+  @Delete(':id')
+  @Roles('admin')  // 관리자만
+  remove(@Param('id') id: string) {
+    return this.usersService.remove(id);
+  }
+}
+```
+
+---
+
+---
+
+## 💡 실무 팁
+
+### 3. Request 객체 타입 확장
+`req.user`를 사용할 때마다 `any` 타입을 쓰지 않도록, Express의 Request 인터페이스를 확장하세요.
+
+```typescript
+// types/express.d.ts
+declare namespace Express {
+  export interface Request {
+    user?: User; // 우리가 정의한 User 타입
+  }
+}
+```
+이제 `req.user.id` 처럼 자동 완성을 받을 수 있습니다.
+
+### 1. 인증 에러 응답 일관성
+
+```typescript
+handleRequest(err: any, user: any, info: any) {
+  if (info?.name === 'TokenExpiredError') {
+    throw new UnauthorizedException({
+      code: 'TOKEN_EXPIRED',
+      message: '토큰이 만료되었습니다',
+    });
+  }
+  if (err || !user) {
+    throw new UnauthorizedException({
+      code: 'INVALID_TOKEN',
+      message: '유효하지 않은 토큰입니다',
+    });
+  }
+  return user;
+}
+```
+
+### 2. 선택적 인증
+
+```typescript
+// 인증이 있으면 사용, 없으면 null
+@Injectable()
+export class OptionalJwtAuthGuard extends AuthGuard('supabase-jwt') {
+  handleRequest(err: any, user: any) {
+    return user || null;  // 에러 없이 null 반환
+  }
+}
+
+// 사용
+@UseGuards(OptionalJwtAuthGuard)
+@Get('posts')
+findAll(@CurrentUser() user: User | null) {
+  // user가 있으면 개인화된 목록
+  // 없으면 공개 목록
+}
+```
+
+---
+
+## 레퍼런스
+
+- [NestJS - Authentication](https://docs.nestjs.com/security/authentication)
+- [NestJS - Authorization](https://docs.nestjs.com/security/authorization)
+- [Supabase - Auth](https://supabase.com/docs/guides/auth)
+- [passport-jwt](https://github.com/mikenicholson/passport-jwt)
+
+**다음 장**: [07. 에러 처리](./07-error-handling.md)

@@ -1,0 +1,379 @@
+---
+title: "02. 뮤테이션 (Mutations)"
+description: "뮤테이션(Mutation)은 서버의 데이터를 변경하는 작업입니다. 데이터 생성, 수정, 삭제와 낙관적 업데이트를 다룹니다."
+date: "2026-02-16"
+---
+
+## 뮤테이션이란?
+
+### 개념 정의
+
+**뮤테이션(Mutation)** 은 서버의 데이터를 **변경** 하는 작업입니다. 쿼리(Query)가 데이터를 "읽기"만 한다면, 뮤테이션은 데이터를 "생성, 수정, 삭제"합니다.
+
+> 💡 **비유**: 은행 업무에서 잔액 조회는 Query, 입금/출금/이체는 Mutation입니다.
+
+| 구분 | HTTP 메서드 | 예시 |
+|------|------------|------|
+| Query (읽기) | GET | 사용자 목록 조회, 상세 정보 조회 |
+| Mutation (변경) | POST, PUT, PATCH, DELETE | 사용자 생성, 정보 수정, 삭제 |
+
+### 왜 뮤테이션을 따로 처리하나요?
+
+읽기와 쓰기는 근본적으로 다른 특성을 가집니다:
+
+| 특성 | Query | Mutation |
+|------|-------|----------|
+| **캐싱** | 캐싱 필수 | 캐싱 불필요 (일회성) |
+| **재시도** | 안전하게 재시도 가능 | 주의 필요 (중복 생성 위험) |
+| **상태** | loading, error, data | pending, error, success |
+| **부수 효과** | 없음 | 있음 (데이터 변경) |
+
+---
+
+## useMutation 기본 사용법
+
+### 기본 구조
+
+```tsx
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+
+function CreateUserForm() {
+  // 1. QueryClient 접근 (캐시 조작용)
+  const queryClient = useQueryClient();
+
+  // 2. Mutation 정의
+  const mutation = useMutation({
+    // 실제 API 호출 함수
+    mutationFn: (newUser: CreateUserInput) =>
+      fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser),
+      }).then(r => r.json()),
+    
+    // 성공 시 콜백
+    onSuccess: (data, variables, context) => {
+      console.log('생성된 사용자:', data);
+      // 사용자 목록 캐시 무효화 → 자동으로 다시 조회
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+    
+    // 실패 시 콜백
+    onError: (error, variables, context) => {
+      console.error('생성 실패:', error);
+      alert('사용자 생성에 실패했습니다.');
+    },
+  });
+
+  // 3. 폼 제출 핸들러
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    
+    // mutate() 호출로 뮤테이션 실행
+    mutation.mutate({
+      name: 'Kim',
+      email: 'kim@example.com',
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* 폼 필드들 */}
+      <button 
+        type="submit" 
+        disabled={mutation.isPending}
+      >
+        {mutation.isPending ? '처리 중...' : '생성'}
+      </button>
+    </form>
+  );
+}
+```
+
+**코드 상세 설명:**
+
+- `useQueryClient()`: QueryClient 인스턴스에 접근합니다. 캐시 무효화, 수동 업데이트 등에 사용합니다.
+
+- `mutationFn`: 실제 서버 요청을 수행하는 함수입니다. Promise를 반환해야 합니다.
+  - `newUser`: `mutate()`에 전달된 데이터가 여기로 들어옵니다.
+
+- `onSuccess(data, variables, context)`: 뮤테이션 성공 시 실행됩니다.
+  - `data`: 서버에서 반환된 응답 데이터
+  - `variables`: `mutate()`에 전달한 원본 데이터
+  - `context`: `onMutate`에서 반환한 컨텍스트 (낙관적 업데이트에 사용)
+
+- `invalidateQueries()`: 지정한 쿼리를 "stale(오래됨)" 상태로 마킹합니다. 해당 쿼리를 사용하는 컴포넌트가 있다면 자동으로 다시 조회합니다.
+
+- `mutation.mutate()`: 뮤테이션을 실행합니다. 비동기이지만 Promise를 반환하지 않습니다.
+
+- `mutation.isPending`: 뮤테이션이 진행 중인지 여부. 중복 제출 방지에 사용합니다.
+
+---
+
+## 낙관적 업데이트 (Optimistic Update)
+
+### 개념
+
+**낙관적 업데이트** 는 서버 응답을 기다리지 않고 **UI를 먼저 업데이트** 하는 패턴입니다. 사용자 경험을 크게 향상시킵니다.
+
+> 💡 **비유**: 카카오톡에서 메시지를 보내면 즉시 채팅창에 나타나고, 전송 실패 시 "재전송" 표시가 뜨는 것과 같습니다.
+
+### 왜 필요한가?
+
+```
+일반적인 흐름:
+1. 사용자가 "좋아요" 클릭
+2. 서버에 요청 전송 (500ms 소요)
+3. 응답 수신
+4. UI 업데이트 ← 사용자는 이때까지 기다려야 함
+
+낙관적 업데이트:
+1. 사용자가 "좋아요" 클릭
+2. UI 즉시 업데이트 ← 사용자는 즉각적인 피드백 받음
+3. 서버에 요청 전송
+4. (성공) 유지 / (실패) 롤백
+```
+
+### 구현 코드
+
+```tsx
+const mutation = useMutation({
+  mutationFn: updateUser,
+  
+  // ========== 1단계: 뮤테이션 시작 전 ==========
+  onMutate: async (newData) => {
+    // 진행 중인 쿼리 취소 (데이터 충돌 방지)
+    // 왜? 백그라운드 갱신 중이면 우리가 설정한 낙관적 값을 덮어쓸 수 있음
+    await queryClient.cancelQueries({ 
+      queryKey: ['users', newData.id] 
+    });
+    
+    // 현재 캐시 데이터 백업 (롤백용)
+    const previousUser = queryClient.getQueryData(['users', newData.id]);
+    
+    // 캐시를 낙관적으로 업데이트 (서버 응답 전에 UI 반영)
+    queryClient.setQueryData(['users', newData.id], newData);
+    
+    // 롤백에 사용할 컨텍스트 반환
+    return { previousUser };
+  },
+  
+  // ========== 2단계: 에러 발생 시 ==========
+  onError: (err, newData, context) => {
+    // 에러 발생! 백업해둔 이전 데이터로 복구
+    if (context?.previousUser) {
+      queryClient.setQueryData(
+        ['users', newData.id], 
+        context.previousUser
+      );
+    }
+    // 사용자에게 에러 알림
+    toast.error('저장에 실패했습니다. 다시 시도해주세요.');
+  },
+  
+  // ========== 3단계: 성공/실패 관계없이 ==========
+  onSettled: () => {
+    // 서버 데이터와 동기화를 위해 쿼리 재검증
+    // 왜? 낙관적으로 넣은 데이터가 서버 응답과 다를 수 있음
+    queryClient.invalidateQueries({ queryKey: ['users'] });
+  },
+});
+```
+
+**흐름 다이어그램:**
+
+```
+사용자 클릭
+    │
+    ▼
+onMutate 실행
+├── 진행 중인 쿼리 취소
+├── 이전 데이터 백업
+└── UI 즉시 업데이트 (낙관적)
+    │
+    ▼
+서버 요청 전송
+    │
+    ├── 성공 ──▶ onSuccess ──▶ onSettled (재검증)
+    │
+    └── 실패 ──▶ onError (롤백) ──▶ onSettled (재검증)
+```
+
+### 실전 예제: 좋아요 기능
+
+```tsx
+function LikeButton({ postId, initialLiked }: Props) {
+  const queryClient = useQueryClient();
+  
+  const likeMutation = useMutation({
+    mutationFn: () => toggleLike(postId),
+    
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['post', postId] });
+      
+      const previousPost = queryClient.getQueryData<Post>(['post', postId]);
+      
+      // 낙관적 업데이트: 좋아요 토글
+      queryClient.setQueryData<Post>(['post', postId], (old) => ({
+        ...old!,
+        isLiked: !old!.isLiked,
+        likeCount: old!.isLiked ? old!.likeCount - 1 : old!.likeCount + 1,
+      }));
+      
+      return { previousPost };
+    },
+    
+    onError: (err, _, context) => {
+      queryClient.setQueryData(['post', postId], context?.previousPost);
+    },
+    
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['post', postId] });
+    },
+  });
+
+  const { data: post } = useQuery({
+    queryKey: ['post', postId],
+    queryFn: () => getPost(postId),
+  });
+
+  return (
+    <button 
+      onClick={() => likeMutation.mutate()}
+      disabled={likeMutation.isPending}
+    >
+      {post?.isLiked ? '❤️' : '🤍'} {post?.likeCount}
+    </button>
+  );
+}
+```
+
+---
+
+## Mutation 상태 활용
+
+### 상태 종류
+
+```tsx
+const mutation = useMutation({ ... });
+
+// 구조 분해 할당으로 상태 추출
+const { 
+  isPending,   // 진행 중
+  isError,     // 에러 발생
+  isSuccess,   // 성공 완료
+  isIdle,      // 아직 실행 안 함
+  error,       // 에러 객체
+  data,        // 성공 시 반환 데이터
+  reset,       // 상태 초기화 함수
+} = mutation;
+```
+
+**각 상태 설명:**
+
+| 상태 | 설명 | 사용 사례 |
+|------|------|----------|
+| `isPending` | 요청이 진행 중 | 로딩 스피너, 버튼 비활성화 |
+| `isError` | 요청 실패 | 에러 메시지 표시 |
+| `isSuccess` | 요청 성공 | 성공 메시지, 모달 닫기 |
+| `isIdle` | 아직 실행 안 함 | 초기 상태 |
+| `error` | Error 객체 | 에러 상세 정보 표시 |
+| `data` | 성공 응답 데이터 | 생성된 리소스 ID 활용 |
+| `reset()` | 상태를 idle로 초기화 | 폼 재사용, 에러 초기화 |
+
+### UI 피드백 예제
+
+```tsx
+function CreatePostForm() {
+  const mutation = useMutation({ mutationFn: createPost });
+
+  return (
+    <form onSubmit={...}>
+      <textarea name="content" disabled={mutation.isPending} />
+      
+      <button disabled={mutation.isPending}>
+        {mutation.isPending ? (
+          <>
+            <Spinner /> 게시 중...
+          </>
+        ) : (
+          '게시하기'
+        )}
+      </button>
+      
+      {/* 에러 표시 */}
+      {mutation.isError && (
+        <div className="error">
+          <p>❌ {mutation.error.message}</p>
+          <button onClick={() => mutation.reset()}>닫기</button>
+        </div>
+      )}
+      
+      {/* 성공 표시 */}
+      {mutation.isSuccess && (
+        <div className="success">
+          ✅ 게시 완료! 
+          <Link href={`/posts/${mutation.data.id}`}>보러 가기</Link>
+        </div>
+      )}
+    </form>
+  );
+}
+```
+
+---
+
+## 활용 팁
+
+### 1. mutateAsync로 Promise 다루기
+
+```tsx
+const mutation = useMutation({ mutationFn: createUser });
+
+// mutate(): 콜백 스타일
+mutation.mutate(data, {
+  onSuccess: (result) => console.log(result),
+});
+
+// mutateAsync(): Promise 반환 (async/await 사용 가능)
+const handleSubmit = async () => {
+  try {
+    const result = await mutation.mutateAsync(data);
+    router.push(`/users/${result.id}`);
+  } catch (error) {
+    // 에러 처리
+  }
+};
+```
+
+### 2. 여러 쿼리 한 번에 무효화
+
+```tsx
+onSuccess: () => {
+  // 관련된 모든 쿼리 무효화
+  queryClient.invalidateQueries({ queryKey: ['users'] });     // 목록
+  queryClient.invalidateQueries({ queryKey: ['user', userId] }); // 상세
+  queryClient.invalidateQueries({ queryKey: ['posts'] });     // 관련 데이터
+}
+```
+
+### 3. 폼 리셋 타이밍
+
+```tsx
+onSuccess: () => {
+  queryClient.invalidateQueries({ queryKey: ['users'] });
+  form.reset();        // 폼 초기화
+  setIsOpen(false);    // 모달 닫기
+  toast.success('저장되었습니다!');
+}
+```
+
+---
+
+## 레퍼런스
+
+- [TanStack Query - Mutations](https://tanstack.com/query/latest/docs/framework/react/guides/mutations)
+- [TanStack Query - Optimistic Updates](https://tanstack.com/query/latest/docs/framework/react/guides/optimistic-updates)
+- [TanStack Query - Mutation Side Effects](https://tanstack.com/query/latest/docs/framework/react/guides/mutations#mutation-side-effects)
+
+**다음 장**: [06. 캐싱 전략](./06-caching-strategies.md)

@@ -1,0 +1,442 @@
+---
+title: "07. 에러 처리"
+description: "NestJS의 예외 필터 시스템을 통해 예외를 일관되게 처리하고, HTTP 응답으로 변환합니다."
+date: "2026-02-16"
+---
+
+## NestJS 예외 시스템
+
+### 개념
+
+NestJS는 **예외 필터(Exception Filter)** 시스템을 통해 예외를 일관되게 처리합니다. 서비스나 컨트롤러에서 예외를 던지면, 예외 필터가 이를 잡아 HTTP 응답으로 변환합니다.
+
+```
+서비스에서 예외 발생
+       │
+       ▼
+예외 필터 (Exception Filter)
+       │
+       ▼
+HTTP 응답 (상태 코드 + JSON)
+```
+
+---
+
+## 내장 HTTP 예외
+
+NestJS는 자주 사용되는 HTTP 상태 코드에 대한 예외 클래스를 제공합니다.
+
+```typescript
+import {
+  BadRequestException,      // 400 - 잘못된 요청
+  UnauthorizedException,    // 401 - 인증 필요
+  ForbiddenException,       // 403 - 권한 없음
+  NotFoundException,        // 404 - 리소스 없음
+  ConflictException,        // 409 - 충돌 (중복 등)
+  InternalServerErrorException, // 500 - 서버 오류
+} from '@nestjs/common';
+```
+
+### 사용 예시
+
+```typescript
+@Injectable()
+export class UsersService {
+  async findOne(id: string) {
+    const user = await this.db.query.users.findFirst({
+      where: eq(users.id, id),
+    });
+    
+    if (!user) {
+      throw new NotFoundException(`사용자 ID '${id}'를 찾을 수 없습니다`);
+    }
+    
+    return user;
+  }
+
+  async create(dto: CreateUserDto) {
+    // 중복 확인
+    const existing = await this.db.query.users.findFirst({
+      where: eq(users.email, dto.email),
+    });
+    
+    if (existing) {
+      throw new ConflictException('이미 사용 중인 이메일입니다');
+    }
+    
+    return this.db.insert(users).values(dto).returning();
+  }
+
+  async withdraw(userId: string, amount: number) {
+    const balance = await this.getBalance(userId);
+    
+    if (balance < amount) {
+      throw new BadRequestException({
+        code: 'INSUFFICIENT_BALANCE',
+        message: '잔액이 부족합니다',
+        balance,
+        requested: amount,
+      });
+    }
+    
+    // 출금 처리
+  }
+}
+```
+
+**예외 생성자 옵션:**
+- 문자열: 간단한 메시지
+- 객체: 상세 정보 (코드, 추가 데이터 등)
+
+---
+
+## 커스텀 예외
+
+### 비즈니스 예외 클래스
+
+```typescript
+// common/exceptions/business.exception.ts
+import { HttpException, HttpStatus } from '@nestjs/common';
+
+export class BusinessException extends HttpException {
+  constructor(
+    public readonly code: string,
+    message: string,
+    status: HttpStatus = HttpStatus.BAD_REQUEST,
+    public readonly details?: Record<string, any>,
+  ) {
+    super(
+      {
+        code,
+        message,
+        details,
+        timestamp: new Date().toISOString(),
+      },
+      status,
+    );
+  }
+}
+
+// 특정 도메인 예외
+export class StockNotFoundException extends BusinessException {
+  constructor(symbol: string) {
+    super(
+      'STOCK_NOT_FOUND',
+      `주식 '${symbol}'을(를) 찾을 수 없습니다`,
+      HttpStatus.NOT_FOUND,
+      { symbol },
+    );
+  }
+}
+
+export class InsufficientBalanceException extends BusinessException {
+  constructor(required: number, current: number) {
+    super(
+      'INSUFFICIENT_BALANCE',
+      '잔액이 부족합니다',
+      HttpStatus.BAD_REQUEST,
+      { required, current },
+    );
+  }
+}
+```
+
+### 사용
+
+```typescript
+async withdraw(userId: string, amount: number) {
+  const balance = await this.getBalance(userId);
+  
+  if (balance < amount) {
+    throw new InsufficientBalanceException(amount, balance);
+  }
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `BusinessException` | 모든 비즈니스 로직 예외의 부모 클래스입니다. `HttpException`을 상속받아 HTTP 상태 코드와 응답 본문을 제어합니다. |
+| `super(...)` | 부모 클래스의 생성자를 호출하여 에러 응답 객체(JSON)와 상태 코드를 설정합니다. |
+| `StockNotFoundException` | 특정 도메인(주식)에 특화된 예외 클래스입니다. 예외 발생 시 필요한 문맥 정보(symbol 등)를 함께 전달합니다. |
+| `InsufficientBalanceException` | 잔액 부족 예외입니다. 필요한 금액과 현재 잔액을 에러 상세 정보(`details`)에 포함시킵니다. |
+
+
+---
+
+## 전역 예외 필터
+
+### 모든 예외를 일관되게 처리
+
+```typescript
+// common/filters/http-exception.filter.ts
+import {
+  ExceptionFilter,
+  Catch,
+  ArgumentsHost,
+  HttpException,
+  HttpStatus,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
+import { HttpAdapterHost } from '@nestjs/core';
+import { ZodError } from 'zod'; // Zod 사용 시
+// import { Request, Response } from 'express'; // 더 이상 필요 없음 (Platform-Agnostic)
+
+@Catch()  // 모든 예외 캐치
+export class GlobalExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(GlobalExceptionFilter.name);
+
+  constructor(private readonly httpAdapterHost: HttpAdapterHost) {}
+
+  catch(exception: unknown, host: ArgumentsHost) {
+    const { httpAdapter } = this.httpAdapterHost;
+    const ctx = host.switchToHttp();
+
+    // 1. 상태 코드 결정
+    let status = HttpStatus.INTERNAL_SERVER_ERROR;
+    let errorResponse: any = {
+      code: 'INTERNAL_ERROR',
+      message: '서버 오류가 발생했습니다',
+    };
+
+    // 2. HttpException 처리
+    if (exception instanceof HttpException) {
+      status = exception.getStatus();
+      const exceptionResponse = exception.getResponse();
+      
+      if (typeof exceptionResponse === 'string') {
+        errorResponse = { code: 'ERROR', message: exceptionResponse };
+      } else {
+        errorResponse = exceptionResponse;
+      }
+    }
+    // 3. Zod 검증 에러 처리
+    else if (exception instanceof ZodError) {
+      status = HttpStatus.BAD_REQUEST;
+      errorResponse = {
+        code: 'VALIDATION_ERROR',
+        message: '입력값이 올바르지 않습니다',
+        errors: exception.errors,
+      };
+    }
+    // 4. 알 수 없는 에러
+    else {
+      this.logger.error(
+        `Unhandled exception: ${exception}`,
+        (exception as Error).stack,
+      );
+    }
+
+    // 5. 응답 전송 (Platform-Agnostic)
+    const responseBody = {
+      ...errorResponse,
+      timestamp: new Date().toISOString(),
+      path: httpAdapter.getRequestUrl(ctx.getRequest()),
+      method: httpAdapter.getRequestMethod(ctx.getRequest()),
+    };
+
+    httpAdapter.reply(ctx.getResponse(), responseBody, status);
+  }
+}
+```
+
+### 🔍 코드 분석
+| 코드 | 설명 |
+|------|------|
+| `@Catch()` | 이 클래스가 **모든 예외** 를 처리하는 필터임을 선언합니다. 특정 예외 클래스를 인자로 넣으면 그 예외만 처리합니다. |
+| `ArgumentsHost` | 실행 컨텍스트(HTTP, RPC, WebSocket 등)를 추상화한 객체입니다. `host.switchToHttp()`로 HTTP 관련 객체(Request, Response)에 접근합니다. |
+| `instanceof HttpException` | 발생한 예외가 NestJS의 표준 HTTP 예외인지 확인합니다. (404, 400 등) |
+| `instanceof ZodError` | Zod 검증 실패 시 발생하는 에러를 별도로 처리하여 상세한 검증 오류 메시지를 응답에 포함시킵니다. |
+| `httpAdapter.reply()` | 기본 HTTP 어댑터(Express 또는 Fastify)를 사용하여 응답을 보냅니다. 특정 프레임워크에 종속되지 않는 코드를 작성할 수 있습니다. |
+
+
+### 등록 (HttpAdapterHost 주입 필요)
+
+```typescript
+// main.ts
+import { HttpAdapterHost } from '@nestjs/core';
+import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  
+  const httpAdapterHost = app.get(HttpAdapterHost);
+  app.useGlobalFilters(new GlobalExceptionFilter(httpAdapterHost));
+  
+  await app.listen(3001);
+}
+```
+
+---
+
+## 로깅
+
+### JSON 로깅 (운영 환경)
+
+운영 환경에서는 로그를 구조화된 JSON 형식으로 출력하여 모니터링 시스템(AWS CloudWatch, ElasticSearch 등)과 연동하기 쉽게 만드는 것이 좋습니다.
+
+```typescript
+// main.ts
+const app = await NestFactory.create(AppModule, {
+  logger: process.env.NODE_ENV === 'production' 
+    ? ['error', 'warn', 'log'] 
+    : ['error', 'warn', 'log', 'debug', 'verbose'],
+});
+
+// 또는 커스텀 로거 설정
+// app.useLogger(app.get(MyLogger));
+
+
+### 일관된 응답 구조
+
+```typescript
+// 모든 에러 응답이 이 형식을 따름
+interface ErrorResponse {
+  code: string;          // 에러 코드 (프론트엔드 분기용)
+  message: string;        // 사용자 친화적 메시지
+  details?: object;       // 추가 정보
+  errors?: ValidationError[]; // 검증 에러 목록
+  timestamp: string;      // 발생 시간
+  path: string;           // 요청 경로
+  method: string;         // HTTP 메서드
+}
+
+// 예시 응답
+{
+  "code": "STOCK_NOT_FOUND",
+  "message": "주식 'INVALID'을(를) 찾을 수 없습니다",
+  "details": { "symbol": "INVALID" },
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "path": "/api/stocks/INVALID",
+  "method": "GET"
+}
+```
+
+### 프론트엔드 에러 처리
+
+```typescript
+// 프론트엔드에서
+try {
+  await stocksApi.getBySymbol('INVALID');
+} catch (error) {
+  if (error.response?.data?.code === 'STOCK_NOT_FOUND') {
+    // 특정 에러 처리
+    showNotFound();
+  } else if (error.response?.data?.code === 'VALIDATION_ERROR') {
+    // 검증 에러 처리
+    const errors = error.response.data.errors;
+    showFormErrors(errors);
+  } else {
+    // 일반 에러
+    showGenericError(error.response?.data?.message);
+  }
+}
+```
+
+---
+
+---
+
+## 로깅 전략 (Logging Strategy)
+
+### 에러 로깅 전략
+
+```typescript
+catch(exception: unknown, host: ArgumentsHost) {
+  // 500 에러는 상세 로깅
+  if (status >= 500) {
+    this.logger.error(
+      `[${request.method}] ${request.url}`,
+      {
+        body: request.body,
+        query: request.query,
+        user: request.user?.id,
+        stack: (exception as Error).stack,
+      },
+    );
+  }
+  // 400대 에러는 간단히
+  else {
+    this.logger.warn(
+      `[${request.method}] ${request.url} - ${errorResponse.code}`,
+    );
+  }
+}
+```
+
+---
+
+---
+
+## 💡 실무 팁
+
+### 3. 심각한 에러 알림 (Slack/Email)
+500 에러(Internal Server Error)는 개발자가 즉시 알아야 합니다.
+Global Filter에서 500 에러 발생 시 Slack 등으로 알림을 보내도록 설정하세요.
+
+```typescript
+// filter 내에서
+if (status === HttpStatus.INTERNAL_SERVER_ERROR) {
+  await this.slackService.sendAlert({
+    text: `🚨 서버 에러 발생! \n Path: ${request.url} \n Error: ${exception.message}`,
+  });
+}
+```
+
+### 1. 컨트롤러에서 에러 처리 최소화
+
+```typescript
+// ❌ 나쁜 예: 컨트롤러에서 에러 처리
+@Get(':id')
+async findOne(@Param('id') id: string) {
+  try {
+    const user = await this.usersService.findOne(id);
+    if (!user) {
+      throw new NotFoundException();
+    }
+    return user;
+  } catch (error) {
+    // 에러 처리 로직
+  }
+}
+
+// ✅ 좋은 예: 서비스에서 예외 던지기
+@Get(':id')
+findOne(@Param('id') id: string) {
+  return this.usersService.findOne(id);
+  // 서비스에서 NotFoundException 던짐
+  // 전역 필터가 처리
+}
+```
+
+### 2. 에러 코드 상수화
+
+```typescript
+// common/error-codes.ts
+export const ErrorCodes = {
+  // 인증
+  AUTH_TOKEN_EXPIRED: 'AUTH_TOKEN_EXPIRED',
+  AUTH_INVALID_TOKEN: 'AUTH_INVALID_TOKEN',
+  
+  // 사용자
+  USER_NOT_FOUND: 'USER_NOT_FOUND',
+  USER_EMAIL_EXISTS: 'USER_EMAIL_EXISTS',
+  
+  // 주식
+  STOCK_NOT_FOUND: 'STOCK_NOT_FOUND',
+  STOCK_SYMBOL_EXISTS: 'STOCK_SYMBOL_EXISTS',
+  
+  // 일반
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+} as const;
+```
+
+---
+
+## 레퍼런스
+
+- [NestJS - Exception Filters](https://docs.nestjs.com/exception-filters)
+- [NestJS - Built-in HTTP Exceptions](https://docs.nestjs.com/exception-filters#built-in-http-exceptions)
+- [HTTP Status Codes](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status)

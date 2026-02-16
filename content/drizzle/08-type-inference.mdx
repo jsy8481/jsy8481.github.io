@@ -1,0 +1,99 @@
+---
+title: "08. 타입 추론 (Type Inference)"
+description: "TypeScript의 강력한 타입 추론을 활용하여 테이블 타입, JSON 컬럼 타입, 관계 쿼리 결과 타입까지 추론합니다."
+date: "2026-02-16"
+---
+
+TypeScript의 강력함을 100% 활용하는 방법입니다. 단순히 테이블 타입뿐만 아니라, **JSON 컬럼 타입**과 **관계가 포함된 쿼리 결과 타입**까지 추론합니다.
+
+---
+
+## 🧬 1. 기본 모델 타입 (`InferSelectModel`, `InferInsertModel`)
+
+가장 기초적인 테이블 단위 타입입니다.
+
+```typescript
+import { type InferSelectModel, type InferInsertModel } from 'drizzle-orm';
+import { users } from './schema';
+
+// 1. 조회용 (DB에 저장된 형태) - 모든 필수 컬럼 포함
+export type User = InferSelectModel<typeof users>;
+
+// 2. 입력용 (Insert시 형태) - id, default값 등은 Optional
+export type NewUser = InferInsertModel<typeof users>;
+```
+
+---
+
+## 🪄 2. JSON 컬럼 타입 지정 (`$type<T>`)
+
+DB에는 그냥 JSON으로 저장되지만, 코드에서는 구체적인 인터페이스로 쓰고 싶을 때 사용합니다.
+
+```typescript
+// 타입 정의
+interface UserSettings {
+  theme: 'dark' | 'light';
+  notifications: boolean;
+}
+
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  // ⭐️ $type<T>()을 붙이면 TS가 이 컬럼을 T로 인식함
+  settings: jsonb('settings').$type<UserSettings>().default({
+    theme: 'light',
+    notifications: true
+  }),
+});
+
+// 결과:
+// user.settings.theme  -> 'dark' | 'light' (자동완성 됨!)
+```
+
+---
+
+## 🌳 3. 관계가 포함된 쿼리 결과 타입
+
+`findMany`로 조인된 데이터를 가져오면 타입이 복잡해집니다. 이를 수동으로 `User & { posts: Post[] }` 이렇게 적으면 나중에 유지보수 지옥이 열립니다. Drizzle에게 물어보세요.
+
+### 방법 A: `typeof` 사용 (가장 추천)
+
+```typescript
+// 1. 쿼리를 작성하는 함수를 만듭니다 (실행 안 함)
+const usersQuery = db.query.users.findMany({
+  with: {
+    posts: {
+      with: { comments: true }
+    },
+    profile: true,
+  }
+});
+
+// 2. Awaited<...> 유틸리티 타입으로 결과 타입을 추출합니다.
+// Promise를 벗겨내고 실제 데이터 타입만 가져옵니다.
+export type UsersWithPosts = Awaited<typeof usersQuery>;
+```
+
+### 방법 B: Drizzle Helper 사용 (`BuildQueryResult`)
+조금 더 복잡한 제네릭 방식이지만, 라이브러리 제작자라면 필요할 수 있습니다. (A번 방법을 권장합니다)
+
+---
+
+## ✂️ 4. 타입 쪼개기 (Pick / Omit)
+
+추론된 타입에서 UI에 필요한 일부만 떼어낼 때, TypeScript 내장 유틸리티를 씁니다.
+
+```typescript
+// 패스워드 뺀 유저 정보
+type PublicUser = Omit<User, 'password'>;
+
+// 유저 목록 카드에 보여줄 정보만
+type UserCardProps = Pick<User, 'id' | 'name' | 'image'>;
+```
+
+---
+
+## 🔗 레퍼런스
+- [Custom Types](https://orm.drizzle.team/docs/custom-types)
+- [Type Inference](https://orm.drizzle.team/docs/goodies#type-inference)
+
+**다음 장**: [09. Supabase 연동 (Supabase Integration)](./09-supabase-integration.md)

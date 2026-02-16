@@ -25,7 +25,7 @@ export default function RootLayout({
           crossOrigin="anonymous"
         ></script>
       </head>
-      <body className={inter.className}>
+      <body className={`${inter.className} bg-white`}>
         <Navigation />
         <main className="min-h-screen">
           {children}

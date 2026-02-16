@@ -12,7 +12,7 @@ export default function Navigation() {
     };
 
     return (
-        <nav className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-lg">
+        <nav className="sticky top-0 z-50 border-b border-border/60 bg-white">
             <div className="max-w-7xl mx-auto flex justify-between items-center h-14 px-6">
                 <Link
                     href="/"
@@ -33,18 +33,6 @@ export default function Navigation() {
                         `}
                     >
                         가이드
-                    </Link>
-                    <Link
-                        href="/portfolio"
-                        className={`
-                            px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200
-                            ${isActive('/portfolio')
-                                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/25'
-                                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                            }
-                        `}
-                    >
-                        포트폴리오
                     </Link>
                 </div>
             </div>

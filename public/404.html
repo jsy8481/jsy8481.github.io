@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Page Not Found | Redirecting...</title>
+    <script type="text/javascript">
+        // GitHub Pages 404 redirection logic
+        var path = window.location.pathname;
+        if (path.indexOf('/korean-guide') === 0) {
+            var newPath = path.replace('/korean-guide', '');
+            if (newPath === '') newPath = '/';
+            window.location.replace(window.location.protocol + '//' + window.location.hostname + (window.location.port ? ':' + window.location.port : '') + newPath);
+        }
+    </script>
+</head>
+
+<body>
+    <h1>404 - Page Not Found</h1>
+    <p>The page has been moved to a new location. Redirecting you now...</p>
+    <p>If you are not redirected, <a href="/">click here to go home</a>.</p>
+</body>
+
+</html>

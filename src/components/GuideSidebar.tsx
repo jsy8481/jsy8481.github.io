@@ -20,14 +20,23 @@ export default function GuideSidebar({ guidesByCategory }: GuideSidebarProps) {
     const activeRef = useRef<HTMLLIElement>(null);
     const sidebarRef = useRef<HTMLElement>(null);
 
+    // 새로고침/직접 접속 시 사이드바에서 현재 가이드 위치로 스크롤
     useEffect(() => {
-        if (activeRef.current && sidebarRef.current) {
-            const sidebar = sidebarRef.current;
-            const activeEl = activeRef.current;
-            const offsetTop = activeEl.offsetTop - sidebar.offsetTop;
-            sidebar.scrollTop = offsetTop - sidebar.clientHeight / 2 + activeEl.clientHeight / 2;
+        if (activeRef.current) {
+            activeRef.current.scrollIntoView({ block: 'center', behavior: 'instant' });
+            window.scrollTo(0, 0);
         }
-    }, [pathname]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // 모바일 사이드바 열릴 때 활성 링크로 스크롤
+    useEffect(() => {
+        if (isOpen && activeRef.current) {
+            setTimeout(() => {
+                activeRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }, 300); // 슬라이드 애니메이션(300ms) 완료 후 실행
+        }
+    }, [isOpen]);
 
     const hasGuides = Object.keys(guidesByCategory).length > 0;
 

@@ -300,6 +300,17 @@ export default async function Page({ params }) {
 ```
 이렇게 **`components` 속성**에 등록만 해주면, MDX 파일 안에 있는 `<LineChart ... />` 텍스트가 마법처럼 실제 React 컴포넌트로 변환되어 실행됩니다.
 
+### 💡 Q. 게시글마다 썸네일(OG Image)은 어떻게 만드나요?
+**Next.js의 `ImageResponse`를 사용하면 자동으로 만들어줍니다.**
+
+일일이 포토샵으로 썸네일을 만들 필요가 없습니다.
+1.  `opengraph-image.tsx` 파일을 만듭니다.
+2.  이 파일 안에서 **"제목(Title)", "날짜(Date)"** 같은 데이터를 받아서,
+3.  마치 HTML/CSS 짜듯이 이미지를 디자인합니다. (JSX 문법 사용)
+4.  Next.js가 이를 **실제 이미지 파일(.png)**로 변환해서 `<meta property="og:image" ... />` 태그에 꽂아줍니다.
+
+결과적으로 카카오톡이나 슬랙에 링크를 공유할 때, **글 제목이 박힌 예쁜 카드 뉴스**가 자동으로 생성되어 보입니다.
+
 ### 💡 Q. MDXEditor에서 "속성 편집 UI(Property Editor)"는 어떻게 구현하나요?
 **`FloatingToolbar`와 `PropertyEditor` 컴포넌트를 조합하여 만듭니다.**
 

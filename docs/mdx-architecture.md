@@ -217,3 +217,17 @@ const koreanTranslations = {
 
 개인 프로젝트는 물론 **상업적 용도(회사 제품)**로 사용해도 전혀 문제가 없습니다.
 단, 기술 지원(Technical Support)이 필요한 경우 유료 스폰서십 모델이 있긴 하지만, 에디터 기능 자체에는 제약이 없습니다.
+
+### 💡 Q. MDXEditor를 쓰면 서버에 저장되는 데이터 구조는 어떻게 되나요?
+**놀랍게도 "그냥 평범한 문자열(String)"**입니다.
+
+Notion이나 Editor.js 같은 블록 에디터들은 복잡한 JSON 객체(`{ type: 'paragraph', content: [...] }`)를 DB에 저장하지만, `MDXEditor`는 **표준 마크다운 텍스트**를 입출력으로 사용합니다.
+
+**실제 DB 저장 예시:**
+```markdown
+# 제목
+안녕하세요, **강조**된 텍스트입니다.
+
+<Counter startingValue={5} />
+```
+DB의 `content` 컬럼(TEXT 타입)에 위 문자열이 그대로 들어갑니다. 덕분에 데이터를 마이그레이션하거나 다른 곳에서 쓰기가 매우 편합니다. (Vendor Lock-in 없음)

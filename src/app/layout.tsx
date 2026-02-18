@@ -21,6 +21,11 @@ export const metadata: Metadata = {
     locale: 'ko_KR',
     type: 'website',
   },
+  alternates: {
+    types: {
+      'application/rss+xml': 'https://jsy8481.github.io/rss.xml',
+    },
+  },
   verification: {
     google: 'PEpZRjA3CF52fo657_N5xCvBcik541r6aepiADVNO0k',
     other: {

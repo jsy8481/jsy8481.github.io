@@ -191,21 +191,23 @@ MDX의 존재 이유가 바로 **"마크다운 + 컴포넌트"**이기 때문입
 ### 💡 Q. 에디터 UI(툴팁, 링크 설명 등)를 한글로 바꾸고 싶어요.
 **Localization(다국어 지원) 기능을 사용해야 합니다.**
 
-대부분의 유명한 에디터 라이브러리들은 내부 텍스트를 외부에서 주입받을 수 있도록 설계되어 있습니다.
+**팩트 체크: `MDXEditor`는 공식적으로 `translation` prop을 지원합니다.**
+이 prop에 번역 함수를 전달하면, 에디터 내부의 모든 텍스트(툴팁, 다이얼로그 등)를 한글로 교체할 수 있습니다. `i18next`와 호환되는 구조입니다.
 
-**예시 (`MDXEditor`의 경우):**
-`translation` prop을 통해 모든 영어 텍스트를 한글로 덮어쓸 수 있습니다.
+**예시 코드:**
 ```tsx
+const koreanTranslations = {
+  'toolbar.bold': '굵게',
+  'toolbar.italic': '이탤릭',
+  'link.url': '링크 주소',
+  // ... 필요한 키값들을 찾아 매핑
+};
+
 <MDXEditor
-  translation={(key) => {
-    switch (key) {
-      case 'link.url': return '링크 주소';
-      case 'link.title': return '링크 제목';
-      case 'toolbar.bold': return '굵게';
-      default: return key; // 나머지는 기본값
-    }
+  marketing={false}
+  translation={(key, defaultValue, interpolations) => {
+    return koreanTranslations[key] || defaultValue || key;
   }}
-  // ...
 />
 ```
-만약 라이브러리가 공식적으로 i18n을 지원하지 않는다면, 오픈소스 코드를 포크(Fork)해서 직접 수정하거나, 제조사에서 제공하는 `locale` 파일을 만들어야 합니다.
+공식 문서나 GitHub에서 `locales` 파일을 찾아보면 전체 키(Key) 목록을 확인할 수 있습니다.

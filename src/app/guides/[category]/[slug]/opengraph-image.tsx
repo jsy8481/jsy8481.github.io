@@ -41,90 +41,118 @@ export default async function Image({ params }: { params: Promise<{ category: st
                     height: '100%',
                     display: 'flex',
                     flexDirection: 'column',
-                    backgroundColor: 'white',
-                    padding: '80px',
-                    justifyContent: 'space-between',
-                    border: '24px solid #0070F3', // Brand Color Border
-                    boxSizing: 'border-box',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#eef2ff', // Light Blue-Gray Background
                 }}
             >
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                    {/* Category Capsule */}
-                    <div
-                        style={{
-                            display: 'flex',
-                            backgroundColor: '#eff6ff', // blue-50
-                            color: '#0070F3',
-                            padding: '12px 30px',
-                            borderRadius: '50px',
-                            fontSize: 32,
-                            fontWeight: 700,
-                            marginBottom: '40px',
-                            // width: 'fit-content', // Unsupported in satori
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                        }}
-                    >
-                        {categoryName}
-                    </div>
-
-                    {/* Title */}
-                    <div
-                        style={{
-                            fontSize: 80,
-                            fontWeight: 900,
-                            color: '#111',
-                            lineHeight: 1.2,
-                            wordBreak: 'keep-all',
-                            fontFamily: 'Pretendard',
-                        }}
-                    >
-                        {title}
-                    </div>
-                </div>
-
+                {/* Floating Card */}
                 <div
                     style={{
                         display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'flex-end',
+                        flexDirection: 'column',
+                        width: '1080px',
+                        height: '510px',
+                        backgroundColor: 'white',
+                        borderRadius: '40px',
+                        overflow: 'hidden', // Clip corners
+                        boxShadow: '0 30px 60px -15px rgba(0,0,0,0.3)',
                     }}
                 >
-                    {/* Date */}
-                    <div
-                        style={{
-                            fontSize: 36,
-                            color: '#666',
-                            fontWeight: 500,
-                            fontFamily: 'Pretendard',
-                        }}
-                    >
-                        {date}
-                    </div>
-
-                    {/* Branding */}
+                    {/* Top Section: Blue Header */}
                     <div
                         style={{
                             display: 'flex',
-                            alignItems: 'center',
+                            flexDirection: 'column',
+                            justifyContent: 'center',
+                            alignItems: 'flex-start',
+                            backgroundColor: '#0070F3',
+                            width: '100%',
+                            height: '65%',
+                            padding: '50px 70px',
                         }}
                     >
+                        {/* Category Capsule */}
                         <div
                             style={{
-                                width: '64px',
-                                height: '64px',
-                                backgroundColor: '#0070F3',
-                                borderRadius: '16px',
                                 display: 'flex',
+                                backgroundColor: 'white',
+                                color: '#0070F3',
+                                padding: '10px 24px',
+                                borderRadius: '50px',
+                                fontSize: 28,
+                                fontWeight: 700,
+                                marginBottom: '24px',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                marginRight: '20px',
+                                fontFamily: 'Pretendard',
                             }}
                         >
-                            <div style={{ color: 'white', fontWeight: 900, fontSize: 34, marginTop: '-5px', fontFamily: 'Pretendard' }}>KG</div>
+                            {categoryName}
                         </div>
-                        <div style={{ fontSize: 40, fontWeight: 800, color: '#0070F3', fontFamily: 'Pretendard' }}>
-                            한국어 기술 가이드
+
+                        {/* Title */}
+                        <div
+                            style={{
+                                fontSize: 72,
+                                fontWeight: 900,
+                                color: 'white',
+                                lineHeight: 1.15,
+                                wordBreak: 'keep-all',
+                                fontFamily: 'Pretendard',
+                            }}
+                        >
+                            {title}
+                        </div>
+                    </div>
+
+                    {/* Bottom Section: White Footer */}
+                    <div
+                        style={{
+                            display: 'flex',
+                            width: '100%',
+                            height: '35%',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '0 70px',
+                        }}
+                    >
+                        {/* Date */}
+                        <div
+                            style={{
+                                fontSize: 32,
+                                color: '#666',
+                                fontWeight: 500,
+                                fontFamily: 'Pretendard',
+                            }}
+                        >
+                            {date}
+                        </div>
+
+                        {/* Branding */}
+                        <div
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                            }}
+                        >
+                            <div
+                                style={{
+                                    width: '48px',
+                                    height: '48px',
+                                    backgroundColor: '#0070F3',
+                                    borderRadius: '12px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    marginRight: '14px',
+                                }}
+                            >
+                                <div style={{ color: 'white', fontWeight: 900, fontSize: 26, marginTop: '-3px', fontFamily: 'Pretendard' }}>KG</div>
+                            </div>
+                            <div style={{ fontSize: 30, fontWeight: 800, color: '#0070F3', fontFamily: 'Pretendard' }}>
+                                한국어 기술 가이드
+                            </div>
                         </div>
                     </div>
                 </div>

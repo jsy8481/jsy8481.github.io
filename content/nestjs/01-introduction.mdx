@@ -1,351 +1,215 @@
 ---
 title: "01. NestJS 소개"
 description: "NestJS의 기본 개념과 프로젝트 구조를 이해하고, 핵심 개념인 모듈, 컨트롤러, 서비스, 의존성 주입을 배웁니다."
-date: "2026-02-16"
+date: "2026-02-26"
 ---
 
-## NestJS란?
+# 🏷️ 01. NestJS 소개 — 왜 프레임워크가 필요한가?
 
-### 개념 정의
+## � 목차
+- [📌 이 문서를 읽기 전에](#-이-문서를-읽기-전에)
+- [🤔 왜 알아야 하는가 (Express vs NestJS)](#-왜-알아야-하는가-express-vs-nestjs)
+- [🏗️ 비유로 먼저 이해하기](#-비유로-먼저-이해하기)
+- [🧩 4대 핵심 개념 이해하기 🟢](#-4대-핵심-개념-이해하기-)
+- [🧪 따라해보기: 첫 앱 실행 및 구조 파악](#-따라해보기-첫-앱-실행-및-구조-파악)
+- [💼 베스트 프랙티스와 실무 팁](#-베스트-프랙티스와-실무-팁)
+- [💥 에러 해결 카탈로그](#-에러-해결-카탈로그)
+- [🗂️ 치트시트](#️-치트시트)
+- [📝 마무리 퀴즈](#-마무리-퀴즈)
 
-**NestJS** 는 효율적이고 확장 가능한 Node.js 서버 애플리케이션을 구축하기 위한 프레임워크입니다. TypeScript로 작성되었으며, OOP(객체 지향 프로그래밍), FP(함수형 프로그래밍), FRP(함수형 반응형 프로그래밍)의 요소를 결합합니다.
+---
 
-> 💡 **핵심 통찰**: NestJS는 Angular의 아키텍처에서 영감을 받았습니다. 모듈, 의존성 주입, 데코레이터 패턴 등 **구조화된 설계** 를 강제하여 대규모 애플리케이션 개발에 적합합니다.
+## 📌 이 문서를 읽기 전에
 
-### Express vs NestJS
+**⏱️ 예상 읽기 시간:** 15분 (전체) / 핵심 파트만: 7분
+
+**🧳 전제 지식 체크리스트**
+아래 항목을 모두 알면 바로 [4대 핵심 개념]부터 읽어도 돼:
+- [ ] JavaScript나 TypeScript의 기본 문법을 읽을 줄 안다.
+- [ ] REST API가 무엇인지 대략적으로 안다 (GET, POST 등).
+- [ ] Express.js 같은 백엔드를 아주 조금이라도 만져본 적이 있다.
+- [ ] 터미널에서 `npm install`이나 `npx` 명령어를 실행할 수 있다.
+
+**🗺️ 이 문서의 흐름**
+NestJS의 탄생 배경 → 4가지 핵심 구조(컨트롤러/서비스/모듈/DI) → 첫 앱 띄우기 → 자주 겪는 에러 → 치트시트
+
+**🎯 이 문서를 다 읽으면 할 수 있는 것**
+- [ ] NestJS가 왜 Express보다 대규모 프로젝트에 좋은지 설명할 수 있다.
+- [ ] 웹 요청이 들어왔을 때 컨트롤러와 서비스가 어떻게 일을 나누는지 설명할 수 있다.
+- [ ] 나만의 첫 번째 NestJS 서버를 로컬에 띄울 수 있다.
+
+---
+
+## 🤔 왜 알아야 하는가 (Express vs NestJS)
+
+Node.js 세상에서 가장 유명한 백엔드 도구는 의심의 여지 없이 **Express.js**야. 
+하지만 Express는 너무나도 자유로워. 어디에 라우터를 두고, 어디에 데이터베이스 코드를 쓸지 아무런 규칙을 강제하지 않아.
+
+> 🤔 **잠깐, 먼저 생각해봐**
+> 5명이 함께 Express로 서버를 만든다고 치자. 각자 자기 마음대로 폴더를 만들고 코드를 짜면, 나중에 코드가 어떻게 될까?
+
+Express의 자유로움은 혼자 만들 때는 축복이지만, 여러 명이 함께 일하는 실무에서는 엄청난 혼란(스파게티 코드)을 낳아. 어디에 뭐가 있는지 찾을 수가 없게 되거든.
+
+**NestJS**는 이 문제를 해결하기 위해 등장했어. Angular 아키텍처에서 영감을 받아 **"코드는 무조건 이렇게 짜야 해!"** 라는 강력하고 명확한 뼈대(Architecture)를 강제하는 프레임워크야.
 
 | 특성 | Express | NestJS |
 |------|---------|--------|
-| **구조** | 자유로움 (규칙 없음) | 강제됨 (모듈, 컨트롤러, 서비스) |
-| **타입** | JavaScript 우선 | TypeScript 우선 (OOP + FP + FRP) |
-| **DI** | 직접 구현 | 내장 (Angular 스타일) |
-| **테스트** | 직접 설정 | 내장 테스트 유틸리티 |
-| **학습 곡선** | 낮음 | 중간 (개념 이해 필요) |
-| **대규모 앱** | 어려움 (구조 없음) | 용이 (명확한 구조) |
-
-> 📘 **참고**: [Introduction](../../../reference/nestjs/INTRODUCTION/Introduction.md)에서 NestJS의 철학을 더 자세히 볼 수 있습니다.
-
-### 왜 NestJS인가?
-
-**문제점: Express의 자유로움이 가져오는 혼란**
-
-```javascript
-// Express: 어디에 뭘 넣어야 할지 기준이 없음
-app.get('/users', (req, res) => {
-  // 인증 체크?
-  // 데이터베이스 접근?
-  // 비즈니스 로직?
-  // 에러 처리?
-  // 모든 게 여기?
-});
-```
-
-**해결책: NestJS의 명확한 계층 구조**
-
-```typescript
-// 컨트롤러: HTTP 요청 처리만
-@Controller('users')
-export class UsersController {
-  @Get()
-  findAll() {
-    return this.usersService.findAll();
-  }
-}
-
-// 서비스: 비즈니스 로직만
-@Injectable()
-export class UsersService {
-  findAll() {
-    return this.db.query.users.findMany();
-  }
-}
-
-// 명확한 책임 분리!
-```
-
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `@Controller('users')` | `/users` 경로로 들어오는 요청을 처리하는 **컨트롤러**임을 선언합니다. |
-| `@Get()` | HTTP GET 요쳥을 처리하는 핸들러임을 선언합니다. |
-| `this.usersService.findAll()` | 비즈니스 로직 처리를 **서비스** 에 위임합니다. |
-| `@Injectable()` | 이 클래스가 **의존성 주입(DI)** 이 가능한 Provider임을 선언합니다. |
-
+| **자유도** | 100% (규칙 없음) | 낮음 (**엄격한 뼈대 강제**) |
+| **언어** | JavaScript 우선 | **TypeScript** 완벽 지원 |
+| **적합도** | 작고 빠른 사이드 프로젝트 | 여러 명이 개발하는 **대규모 앱** |
 
 ---
 
-## 핵심 개념
+## 🏗️ 비유로 먼저 이해하기
 
-### 1. 모듈 (Module)
+> 🧒 **5살에게 설명한다면?**
+> Express가 '빈 도화지와 크레파스'라면, NestJS는 **'조립 설명서가 있는 레고 블록'** 이야.
+> 
+> 도화지에는 아무렇게나 그릴 수 있어서 편하지만, 커다란 도시를 그릴 땐 복잡해져. 
+> 레고는 정해진 모양대로 딱딱 끼워 맞춰야 해서 처음엔 귀찮지만, 친구들과 힘을 합쳐서 엄청나게 거대한 성을 만들어도 튼튼하게 유지할 수 있어!
 
-**모듈** 은 관련된 기능을 그룹화하는 단위입니다. 각 모듈은 컨트롤러, 서비스, 기타 프로바이더를 포함합니다.
+---
+
+## 🧩 4대 핵심 개념 이해하기 🟢
+
+> 🎯 **이 섹션을 읽고 나면:**
+> - HTTP 요청을 받는 역할(Controller)과 실제 로직(Service)을 완벽히 구분할 수 있다.
+> - `DI`라는 무시무시한 단어의 진짜 의미를 설명할 수 있다.
+
+마치 체계적으로 돌아가는 고급 레스토랑처럼, NestJS는 역할을 완벽하게 나눈 세 가지 주요 요소를 가져.
+
+### 1. 컨트롤러 (Controller) — 주문을 받는 웨이터 💁‍♂️
+
+컨트롤러는 오직 **"클라이언트(손님)의 요청을 받고, 서비스(주방)로 전달한 뒤, 결과물을 다시 응답하는 일"** 만 해.
 
 ```typescript
+import { Controller, Get } from '@nestjs/common';
+import { UsersService } from './users.service';
+
+@Controller('users')  // '/users' 경로의 요청을 다 받음
+export class UsersController {
+  // 생성자를 통해 서비스(주방장)를 불러옴
+  constructor(private readonly usersService: UsersService) {}
+
+  @Get()              // GET 요청이 오면
+  findAll() {
+    // 요리는 서비스가 하고, 결과만 받아서 서빙함!
+    return this.usersService.findAllUsers();
+  }
+}
+```
+
+> **❌ 나쁜 예:** 컨트롤러 안에서 데이터베이스에 직접 접속해서 데이터를 뽑는 것 (웨이터가 주방 불판에 고기를 굽는 격)
+
+### 2. 서비스 (Service) — 요리를 하는 셰프 🧑‍🍳
+
+서비스는 실제 **비즈니스 로직(데이터 저장, 계산, API 호출 등)** 을 책임져. 컨트롤러가 어떤 HTTP 메소드로 통신하는지 전혀 몰라도 돼.
+
+```typescript
+import { Injectable } from '@nestjs/common';
+
+@Injectable() // "이 클래스는 다른 데서 불러다 쓸 수 있는 주방장입니다"
+export class UsersService {
+  findAllUsers() {
+    // 실제 데이터베이스 조회를 여기서 수행
+    return [{ id: 1, name: 'Suyeong' }]; 
+  }
+}
+```
+
+> **� 용어: `Provider`** — NestJS에서 의존성 주입을 통해 다른 클래스에 공급(provide)될 수 있는 모든 것. 서비스는 Provider의 가장 대표적인 종류야.
+
+### 3. 모듈 (Module) — 주방과 홀을 하나로 묶은 레스토랑 지점 🏢
+
+모듈은 서로 연관된 컨트롤러와 서비스를 하나의 폴더처럼 묶어주는 껍데기야. "Users 관리 지점", "게시글 관리 지점" 단위로 나뉘지.
+
+```typescript
+import { Module } from '@nestjs/common';
+import { UsersController } from './users.controller';
+import { UsersService } from './users.service';
+
 @Module({
-  imports: [DatabaseModule],       // 다른 모듈 가져오기
-  controllers: [UsersController],  // HTTP 요청 핸들러
-  providers: [UsersService],       // 서비스 및 기타 프로바이더
-  exports: [UsersService],         // 다른 모듈에서 사용 가능하게
+  controllers: [UsersController],  // 이 모듈의 웨이터들 등록
+  providers: [UsersService],       // 이 모듈의 셰프들 등록
 })
 export class UsersModule {}
 ```
 
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `@Module()` | 이 클래스가 NestJS의 구성 단위인 **모듈**임을 선언합니다. |
-| `imports` | 이 모듈이 ** 의존하는** 다른 모듈들을 정의합니다. (예: DB 모듈) |
-| `controllers` | 이 모듈에 속한 **컨트롤러**들을 정의합니다. (인스턴스화 대상) |
-| `providers` | 이 모듈에 속한 **서비스**나 **Provider**들을 정의합니다. (DI 컨테이너 등록) |
-| `exports` | 이 모듈의 Provider 중 **다른 모듈에서 사용할 것**들을 공개합니다. (캡슐화) |
+### 4. 의존성 주입 (DI; Dependency Injection) 💉
 
+NestJS를 처음 배울 때 제일 헷갈리는 단어야.
 
-**모듈 구조의 이점:**
-- **캡슐화**: 관련 기능이 하나의 단위로 묶임
-- **재사용성**: 다른 프로젝트에 모듈 단위로 이동 가능
-- ** 의존성 명시**: imports로 의존 관계가 명확함
+**❌ 의존성 주입을 안 쓰면?**
+컨트롤러가 직접 서비스를 생성해야 해. (`new UsersService()`)
+이러면 웨이터가 출근할 때마다 자기 전담 셰프를 직접 고용해서 데리고 와야 해. 셰프를 바꾸거나 휴가 보낼 때 너무 불편하지.
 
-### 2. 컨트롤러 (Controller)
+**✅ 의존성 주입을 쓰면?**
+NestJS(레스토랑 지배인)가 미리 셰프 인스턴스를 하나 만들어두고, 웨이터가 출근(`constructor`)하면 알아서 딱 연결해줘! 
 
-**컨트롤러** 는 HTTP 요청을 받아 적절한 서비스로 전달하고 응답을 반환합니다.
-
-```typescript
-@Controller('users')  // 기본 경로: /users
-export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
-
-  @Get()              // GET /users
-  findAll() {}
-
-  @Get(':id')         // GET /users/:id
-  findOne(@Param('id') id: string) {}
-
-  @Post()             // POST /users
-  create(@Body() dto: CreateUserDto) {}
-}
-```
-
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `@Controller('users')` | 클래스 레벨 데코레이터로, 기본 라우트 경로를 `/users`로 설정합니다. |
-| `@Get(':id')` | 메서드 레벨 데코레이터로, GET `/users/:id` 요청과 매핑합니다. |
-| `@Param('id')` | URL 경로의 파라미터(`:id`) 값을 추출하여 메서드 인자로 전달합니다. |
-| `@Post()` | POST 요청과 매핑합니다. |
-| `@Body()` | 요청 본문(JSON 등)을 추출하여 DTO 객체로 변환합니다. |
-
-
-### 3. 서비스 (Service / Provider)
-
-**서비스** 는 비즈니스 로직을 담당합니다. 데이터베이스 접근, 외부 API 호출 등 실제 작업을 수행합니다.
-
-```typescript
-@Injectable()  // DI 시스템에 등록
-export class UsersService {
-  constructor(private readonly db: DatabaseService) {}
-
-  findAll() {
-    return this.db.query.users.findMany();
-  }
-
-  findOne(id: string) {
-    return this.db.query.users.findFirst({
-      where: eq(users.id, id),
-    });
-  }
-}
-```
-
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `@Injectable()` | 이 클래스가 NestJS IOC 컨테이너에 의해 관리되는 **Provider**임을 선언합니다. |
-| `constructor()` | **생성자 주입** 을 통해 `DatabaseService` 인스턴스를 자동으로 주입받습니다. |
-| `this.db.query...` | 주입받은 DB 서비스를 사용하여 실제 데이터베이스 작업을 수행합니다. |
-
-
-### 4. 의존성 주입 (DI)
-
-**의존성 주입(Dependency Injection)** 은 객체가 필요한 의존성을 직접 생성하지 않고, 외부에서 주입받는 패턴입니다.
-
-```typescript
-// ❌ 직접 생성: 테스트 어려움, 결합도 높음
-class UsersController {
-  private usersService = new UsersService(new DatabaseService());
-}
-
-// ✅ 의존성 주입: 테스트 용이, 결합도 낮음
-class UsersController {
-  constructor(private usersService: UsersService) {}
-  // NestJS가 자동으로 UsersService 인스턴스 주입
-}
-```
-
-**DI의 이점:**
-- **테스트 용이**: 실제 서비스 대신 Mock 주입 가능
-- **유연성**: 구현을 쉽게 교체 가능
-- **코드 재사용**: 같은 서비스 여러 곳에서 공유
-
-> 📘 **Deep Dive**:
-> - [Modules](../../../reference/nestjs/OVERVIEW/Modules.md): 모듈 시스템 상세
-> - [Controllers](../../../reference/nestjs/OVERVIEW/Controllers.md): 라우팅 및 요청 처리
-> - [Providers](../../../reference/nestjs/OVERVIEW/Providers.md): 서비스, 리포지토리, 팩토리 등
-> - [Custom Providers](../../../reference/nestjs/FUNDAMENTALS/Custom%20providers.md): 고급 DI 패턴
+> 💡 **한 줄로 기억하기**
+> 컨트롤러는 웨이터(요청/응답), 서비스는 셰프(실제 로직), 모듈은 레스토랑의 특정 코너, DI는 지배인(필요한 인력을 알아서 꽂아줌)이야.
 
 ---
 
-## 프로젝트 구조
+## 🧪 따라해보기: 첫 앱 실행 및 구조 파악
 
-### 권장 구조
+백문이 불여일타! 터미널을 열고 직접 첫 앱을 띄워보자.
 
-```
-apps/server/
-├── src/
-│   ├── app.module.ts          # 루트 모듈
-│   ├── main.ts                # 애플리케이션 진입점
-│   │
-│   ├── modules/               # 기능별 모듈
-│   │   ├── users/
-│   │   │   ├── users.module.ts
-│   │   │   ├── users.controller.ts
-│   │   │   ├── users.service.ts
-│   │   │   └── dto/
-│   │   │       ├── create-user.dto.ts
-│   │   │       └── update-user.dto.ts
-│   │   │
-│   │   └── stocks/
-│   │       ├── stocks.module.ts
-│   │       ├── stocks.controller.ts
-│   │       └── stocks.service.ts
-│   │
-│   ├── common/                # 공유 유틸리티
-│   │   ├── decorators/
-│   │   ├── filters/
-│   │   ├── guards/
-│   │   └── pipes/
-│   │
-│   └── database/              # 데이터베이스 설정
-│       └── database.module.ts
-│
-└── test/                      # E2E 테스트
-```
-
-### 파일 명명 규칙
-
-| 파일 유형 | 명명 패턴 | 예시 |
-|----------|----------|------|
-| 모듈 | `*.module.ts` | `users.module.ts` |
-| 컨트롤러 | `*.controller.ts` | `users.controller.ts` |
-| 서비스 | `*.service.ts` | `users.service.ts` |
-| DTO | `*.dto.ts` | `create-user.dto.ts` |
-| 엔티티 | `*.entity.ts` | `user.entity.ts` |
-| 가드 | `*.guard.ts` | `auth.guard.ts` |
-| 파이프 | `*.pipe.ts` | `validation.pipe.ts` |
-
----
-
-## 첫 번째 앱 실행
-
-### 프로젝트 생성
+### 1️⃣ 실습: NestJS 프로젝트 생성하기
 
 ```bash
-# NestJS CLI 사용 (기본)
-npx @nestjs/cli new my-server
-
-# ✨ Strict Mode (추천): 더 엄격한 타입 안정성 보장
+# 1. NestJS CLI 도구를 이용해 새 프로젝트 만들기 (이름: my-server)
 npx @nestjs/cli new my-server --strict
+# └── --strict: TypeScript의 엄격한 모드를 켜서 나중에 발생할 에러를 줄여줌
+
+# 2. 폴더로 이동
+cd my-server
+
+# 3. 개발 모드로 서버 실행 (코드 변경 시 자동 재시작)
+npm run start:dev
 ```
 
-> 📘 **참고**: [First steps](../../../reference/nestjs/OVERVIEW/First%20steps.md)에서 설치 옵션을 확인하세요.
+서버가 켜지면 브라우저에서 `http://localhost:3000`으로 접속해봐. "Hello World!"가 보일 거야!
 
-### main.ts 이해
+**🔍 `src/main.ts` 한 줄씩 뜯어보기:**
+
+이 파일은 서버를 켜는 엔진 룸이야.
 
 ```typescript
-// src/main.ts
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
-  // 1. 애플리케이션 인스턴스 생성
+  // 1. AppModule(최상위 레스토랑 본점)을 기반으로 앱 생성
   const app = await NestFactory.create(AppModule);
   
-  // 2. 글로벌 파이프 설정 (입력 검증)
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,  // DTO에 없는 속성 제거
-    transform: true,  // 타입 자동 변환
-  }));
-  
-  // 3. CORS 활성화 (프론트엔드 연동용)
-  app.enableCors({
-    origin: process.env.FRONTEND_URL,
-    credentials: true,
-  });
-  
-  // 4. 서버 시작
-  await app.listen(3001);
+  // 2. 3000번 포트에서 요청을 대기
+  await app.listen(3000);
 }
-bootstrap();
+bootstrap(); // 함수 실행
 ```
 
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `NestFactory.create()` | `AppModule`을 루트 모듈로 사용하여 NestJS 애플리케이션 인스턴스를 생성합니다. |
-| `app.useGlobalPipes()` | 애플리케이션 전체에 적용될 **전역 파이프** 를 설정합니다. 여기선 유효성 검사를 위해 사용됩니다. |
-| `ValidationPipe` | `class-validator`를 사용하여 들어오는 모든 요청 데이터를 검증하는 내장 파이프입니다. |
-| `whitelist: true` | DTO에 정의되지 않은 속성이 요청에 포함되면 자동으로 제거합니다. (보안) |
-| `transform: true` | 요청 데이터를 DTO 클래스의 인스턴스로 자동 변환하거나, 타입을 변환합니다. (문자열 "1" -> 숫자 1) |
-| `app.enableCors()` | **CORS(Cross-Origin Resource Sharing)** 설정을 활성화하여 다른 도메인의 프론트엔드 접근을 허용합니다. |
-| `app.listen(3001)` | 3001 포트에서 HTTP 서버를 시작하고 요청을 대기합니다. |
-
-
-
+**✅ 실습 후 체크리스트**
+- [ ] 브라우저에서 Hello World를 확인했다.
+- [ ] NestJS의 4대 핵심 개념(컨트롤러, 서비스, 모듈, DI)을 비유로 설명할 수 있다.
 
 ---
 
-## 💡 실무 팁
+## 💼 베스트 프랙티스와 실무 팁 🟡
 
-### 1. CLI로 빠르게 생성
-
-```bash
-# 리소스 전체 생성 (모듈 + 컨트롤러 + 서비스 + DTO)
-npx nest generate resource stocks
-
-# 개별 생성
-npx nest generate module stocks
-npx nest generate controller stocks
-npx nest generate service stocks
-```
-
-### 2. 개발 모드 실행
+### 터미널 CLI로 보일러플레이트 박살내기
+NestJS는 파일을 직접 만들지 않아도 돼. CLI가 모듈, 컨트롤러, 서비스를 한 번에 예쁘게 묶어서 생성해줘.
 
 ```bash
-# 파일 변경 감지 + 자동 재시작
-npm run start:dev
-
-# 디버그 모드 (VS Code 연동)
-npm run start:debug
+# Users와 관련된 CRUD 완벽 세트 뼈대 생성!
+npx nest generate resource users
 ```
 
-### 3. SWC로 빌드 속도 향상 (x20배)
-[SWC](https://swc.rs/)는 Rust로 작성된 초고속 컴파일러입니다. NestJS는 이를 공식 지원합니다.
+이 명령어 한방이면 `users.controller.ts`, `users.service.ts`, `users.module.ts`, 그리고 테스트 파일까지 완벽한 구조로 생성돼. 무조건 이거 써!
 
-```bash
-# SWC 빌더 사용
-npm run start -- -b swc
-```
-
-### 4. 플랫폼 독립성 (Platform Agnosticism)
-NestJS는 기본적으로 **Express** 위에서 동작하지만, **Fastify** 로 쉽게 전환할 수 있습니다.
-- **Express**: 거대한 생태계, 안정성 (기본값)
-- **Fastify**: 초고속 성능 (최대 2배 처리량)
-
-> 📘 **상세 정보**: [Performance (Fastify)](../../../reference/nestjs/TECHNIQUES/Performance%20(Fastify).md)
-
-### 5. 절대 경로(Absolute Path) 설정
-프로젝트가 커지면 `../../../../` 같은 상대 경로 지옥에 빠지기 쉽습니다.
-`tsconfig.json`에서 `paths`를 설정하여 깔끔하게 import 하세요.
+### 절대 경로 (Paths) 설정하기
+프로젝트가 커지면 `import { UsersService } from '../../../../modules/users/users.service'` 꼴이 나. 끔찍하지?
+`tsconfig.json`에 아래처럼 세팅해.
 
 ```json
 {
@@ -357,15 +221,115 @@ NestJS는 기본적으로 **Express** 위에서 동작하지만, **Fastify** 로
   }
 }
 ```
-이제 `import { UsersService } from '@/modules/users/users.service';` 처럼 사용할 수 있습니다.
+이제 `import { UsersService } from '@/modules/users/users.service'` 로 깔끔하게 끝!
 
 ---
 
-## 레퍼런스
+## 💥 에러 해결 카탈로그
 
-- [NestJS 공식 문서](https://docs.nestjs.com/)
-- [NestJS - First Steps](https://docs.nestjs.com/first-steps)
-- [NestJS - Controllers](https://docs.nestjs.com/controllers)
-- [NestJS - Providers](https://docs.nestjs.com/providers)
+> 에러 메시지가 뜨면 Ctrl+F로 메시지 일부를 검색해봐.
 
-**다음 장**: [02. 모듈과 컨트롤러](./02-modules-controllers.md)
+### ❌ `Error: listen EADDRINUSE: address already in use :::3000`
+
+**언제 나오는가?**
+```bash
+[ExceptionsHandler] listen EADDRINUSE: address already in use :::3000
+```
+**원인:** 이미 3000번 포트에서 다른 서버가 돌고 있다는 뜻이야. (어제 켜둔 터미널 창이 어딘가 살아있을 확률 99%)
+
+**해결책:**
+```bash
+# Mac/Linux 터미널에서: 3000 포트 죽이기
+lsof -i :3000
+kill -9 [PID번호]
+```
+
+### ❌ `Nest can't resolve dependencies of the UsersController`
+
+**언제 나오는가?**
+```bash
+Nest can't resolve dependencies of the UsersController (?). 
+Please make sure that the argument UsersService at index [0] is available in the UsersModule context.
+```
+**원인:** 컨트롤러에서 `UsersService`를 가져다 쓰고 싶은데, NestJS 규칙 상 해당 모듈의 `providers: []` 배열에 등록을 안 해둔 거야. (셰프를 고용 안 하고 웨이터만 불렀음)
+
+**해결책:**
+`users.module.ts` 파일을 열어서 아래처럼 수정해.
+```typescript
+@Module({
+  controllers: [UsersController],
+  providers: [UsersService], // 👈 이거 빼먹었어!
+})
+```
+
+---
+
+## 🗂️ 치트시트
+
+> 문서 전체를 다시 읽을 시간이 없을 때 이것만 봐도 돼.
+
+### � 핵심 명령어
+
+| 상황 | 명령어 | 설명 |
+|------|------------|------|
+| 새 프로젝트 | `npx @nestjs/cli new [이름]` | 기본 뼈대 생성 |
+| 자원 일괄 생성 | `npx nest g resource [이름]` | 컨트롤러+서비스+모듈 뚝딱 |
+| 개발 서버 실행 | `npm run start:dev` | 파일 저장 시 자동 재시작 모드 |
+
+### ⚠️ 절대 하지 말 것
+
+| 상황 | ❌ 나쁜 예 | ✅ 좋은 예 |
+|------|-----------|-----------|
+| 컨트롤러 역할 | 컨트롤러에서 파라미터 계산, DB 접속 | 서비스 함수만 덜렁 호출 |
+| 의존성 생성 | `new UsersService()` | `constructor(private usersService: UsersService)` |
+
+---
+
+## 📝 마무리 퀴즈
+
+**Q1. 다음 중 NestJS 컨트롤러와 서비스의 역할 분담으로 가장 올바른 것은?**
+- A) 서비스가 HTTP API의 URL 주소를 정의하고, 컨트롤러가 데이터베이스에서 값을 조회한다.
+- B) 컨트롤러가 HTTP 요청과 응답을 관리하고, 서비스가 데이터 유효성을 검사하고 데이터베이스를 다룬다.
+- C) 컨트롤러와 서비스 중 아무 곳에나 로직을 작성해도 무방하다.
+- D) 컨트롤러는 뷰(View) 렌더링에만 사용된다.
+
+> ✅ **정답: B**
+> **설명:** 웨이터(컨트롤러)는 클라이언트 구역, 셰프(서비스)는 요리 로직. 철저하게 역할을 분리해야 해!
+
+**Q2. 아래 빈칸을 채워봐.**
+
+터미널에서 명령어 한 줄로 컨트롤러, 서비스, DTO 파일 등을 한 묶음으로 완벽하게 자동 생성하고 싶을 때 쓰는 명령어는?
+```bash
+npx nest g [          ] users
+```
+
+> ✅ **정답:** `resource`
+> **📌 핵심 기억법:** 게시판, 유저관리 같은 한 덩어리의 '자원(resource)'을 통째로 생성해주는 마법의 단어.
+
+**Q3. 디버깅 퀴즈: 아래 코드에서 서버가 죽는 이유를 찾아봐.**
+
+```typescript
+// users.module.ts
+import { Module } from '@nestjs/common';
+import { UsersController } from './users.controller';
+
+@Module({
+  controllers: [UsersController]
+  // 주방장이 없어요...
+})
+export class UsersModule {}
+```
+
+컨트롤러에서 `UsersService`를 주입받아 쓰고 있는데, 모듈에는 위처럼만 등록되어 있어. 어떻게 고쳐야 할까?
+- A) `@Controller` 옵션으로 서비스를 추가한다.
+- B) `providers: [UsersService]` 배열을 모듈에 명시해 준다.
+- C) `imports: [UsersService]`로 서비스 파일을 가져온다.
+
+> ✅ **정답: B**
+> **설명:** 자신이 데리고 있는 셰프(Service)는 무조건 Provider 배열에 명시해줘야 NestJS의 DI 시스템이 인식해!
+
+---
+
+## 🔗 더 알아보기
+- [NestJS 공식 문서 (First Steps)](https://docs.nestjs.com/first-steps)
+- [02. 모듈과 컨트롤러 심화 가이드](./02-modules-controllers.mdx)

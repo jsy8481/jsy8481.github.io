@@ -1,150 +1,145 @@
 ---
-title: "08. 실전 개발 가이드: 포트폴리오 서비스 만들기"
-description: "앞서 배운 모든 개념(모듈, 컨트롤러, 서비스, Drizzle)과 Zod를 이용한 SSOT 패턴으로 주식 포트폴리오 서비스를 구현합니다."
-date: "2026-02-16"
+title: "08. 실전 가이드: 포트폴리오 앱"
+description: "지금까지 배운 모듈, 컨트롤러, 서비스, Drizzle, Zod를 총동원하여 실제 작동하는 '주식 포트폴리오 관리 API'를 밑바닥부터 완성해 봅니다."
+date: "2026-02-26"
 ---
 
-이 가이드는 앞서 배운 모든 개념(모듈, 컨트롤러, 서비스, Drizzle)과 **Zod를 이용한 단일 진실 공급원(Single Source of Truth, SSOT)** 패턴을 종합하여 **"주식 포트폴리오 관리 서비스"** 를 밑바닥부터 구현하는 과정을 다룹니다.
+# 🏷️ 08. 실전 가이드 — 배운 것들을 모두 엮어 '진짜' API 만들기
 
-코드 하단에는 **사용된 모든 데코레이터와 함수에 대한 상세 설명** 이 포함되어 있어, 이 가이드만 보더라도 실전 개발이 가능하도록 구성했습니다.
+## 📋 목차
+- [📌 이 문서를 읽기 전에](#-이-문서를-읽기-전에)
+- [🤔 왜 알아야 하는가](#-왜-알아야-하는가)
+- [🏗️ 비유로 먼저 이해하기](#-비유로-먼저-이해하기)
+- [🧩 1단계: 뼈대 설계 (DB 스키마) 🟡](#-1단계-뼈대-설계-db-스키마-)
+- [🧩 2단계: 완벽한 DTO 생성 (SSOT) 🟢](#-2단계-완벽한-dto-생성-ssot-)
+- [🧪 따라해보기: 컨트롤러와 서비스 엮어서 CRUD 완성하기](#-따라해보기-컨트롤러와-서비스-엮어서-crud-완성하기)
+- [💼 베스트 프랙티스와 실무 팁](#-베스트-프랙티스와-실무-팁)
+- [💥 에러 해결 카탈로그](#-에러-해결-카탈로그)
+- [🗂️ 치트시트](#️-치트시트)
+- [📝 마무리 퀴즈](#-마무리-퀴즈)
 
 ---
 
-## 1. 목표 기능
+## 📌 이 문서를 읽기 전에
 
-- **포트폴리오 생성**: 이름과 설명으로 포트폴리오를 만듭니다.
-- **포트폴리오 조회**: 내 포트폴리오 목록을 봅니다.
-- **포트폴리오 수정**: 이름을 변경합니다.
-- **포트폴리오 삭제**: 포트폴리오를 삭제합니다.
+**⏱️ 예상 읽기 시간:** 25분 (직접 코딩하며 따라오면 1시간)
+
+**🧳 전제 지식 체크리스트**
+- [ ] 02장의 컨트롤러, 03장의 서비스 기본 형태를 기억한다.
+- [ ] 04장의 DTO 개념과 05장의 Drizzle ORM 기본 쿼리 문법을 훑어봤다.
+- [ ] 06장의 가드(`JwtAuthGuard`)가 어떤 역할을 하는지 안다.
+
+**🗺️ 이 문서의 흐름**
+목표 기능 정의 → DB 테이블 설계 → DTO 찍어내기 → 비즈니스 로직(서비스) 작성 → 컨트롤러로 길 뚫기(최종 조립)
+
+**🎯 이 문서를 다 읽으면 할 수 있는 것**
+- [ ] 단일 진실 공급원(SSOT) 패턴이 실무에서 얼마나 코드를 줄여주는지 체감할 수 있다.
+- [ ] 내 포트폴리오(개인 자산)를 보호하는 라우팅 기법을 설계할 수 있다.
+- [ ] 혼자서 새로운 기능(예: 댓글 기능, 좋아요 기능)을 설계부터 API 구현까지 처음부터 끝까지 혼자 해낼 수 있다.
 
 ---
 
-## 2. 스키마 정의 (Drizzle)
+## 🤔 왜 알아야 하는가
 
-가장 먼저 데이터 구조를 정의합니다.
+지금까지 우리는 레고 블록의 '부품'들이 각각 어떤 역할을 하는지 따로따로 떼어놓고 배웠어.
+엔진(서비스), 바퀴(DB), 운전대(컨트롤러) 작동 원리를 아는 것과, 막상 부품을 싹 다 모아놓고 "자, 이제 굴러가는 비행기를 직접 조립해 봐!" 라고 하는 건 완전히 다른 영역이야. 
+이 실전 가이드를 따라가면서 파편화된 머릿속 지식들을 하나의 매끄러운 **업무 흐름(Workflow)** 으로 압축(Compile) 지켜야 비로소 내 것이 돼.
+
+---
+
+## 🏗️ 비유로 먼저 이해하기
+
+> 🧒 **5살에게 설명한다면?**
+> 자동차 공장에서 멋진 자동차를 조립하는 과정을 상상해 볼까?
+> 
+> 1. **뼈대 만들기 (스키마):** 자동차의 철제 프레임 디자인을 그린다.
+> 2. **사용 설명서 찍어내기 (SSOT DTO):** 프레임 디자인만 보고 컴퓨터(Zod)가 알아서 "이 차의 최대 정원은 4명" 이라는 사용 설명서를 자동으로 찍어낸다.
+> 3. **엔진 달기 (서비스):** 핸들을 꺾으면 바퀴가 돌아가게 철사를 연결한다.
+> 4. **버튼 뚫기 (컨트롤러):** 운전자가 밖에서 누를 수 있게 핸들과 페달을 예쁘게 배치하고, 운전면허(가드)가 있는 사람만 탈 수 있게 열쇠 구멍을 판다.
+
+---
+
+## 🧩 1단계: 뼈대 설계 (DB 스키마) 🟡
+
+> 🎯 **이 섹션을 읽고 나면:** Drizzle 스키마를 선언하고 타입을 빼낼 수 있다.
+
+우리가 만들 건 **"주식 포트폴리오 관리"** 기능이야.
+
+* **목표 기능:** 이름과 설명으로 포트폴리오를 만들고, 내 목록을 보고, 수정/삭제한다.
 
 ```typescript
 // packages/schema/src/schema.ts
 import { pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
 
-// 1. 포트폴리오 테이블 정의
+// 1. 테이블 정의 (물리적 DB 구조)
 export const portfolios = pgTable('portfolios', {
-  id: serial('id').primaryKey(),          // 고유 ID (자동 증가)
-  userId: text('user_id').notNull(),      // 소유자 ID (Supabase Auth 연동)
-  name: text('name').notNull(),           // 포트폴리오 이름
-  description: text('description'),       // 설명 (선택 사항)
-  createdAt: timestamp('created_at').defaultNow(), // 생성일
-  updatedAt: timestamp('updated_at').defaultNow(), // 수정일
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull(),      // 소유자 ID
+  name: text('name').notNull(),           // 예: "내 노후 든든 조합"
+  description: text('description'),       // 설명 (Optional)
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-// 2. 타입 추론 (Drizzle의 강력한 기능)
-export type Portfolio = typeof portfolios.$inferSelect; // SELECT 결과 타입
-export type NewPortfolio = typeof portfolios.$inferInsert; // INSERT 입력 타입
+// 2. 타입 추론 (여기가 Drizzle의 꿀잼 포인트)
+export type Portfolio = typeof portfolios.$inferSelect;   // SELECT 할 때 나오는 객체의 타입
+export type NewPortfolio = typeof portfolios.$inferInsert; // INSERT 할 때 넣어야 하는 객체의 타입
 ```
 
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `pgTable` | Postgres 테이블을 정의하는 Drizzle 함수입니다. 첫 번째 인자는 테이블명입니다. |
-| `serial` | 자동 증가하는 정수형 컬럼(`SERIAL`)을 정의합니다. 주로 ID에 사용됩니다. |
-| `text` | 문자열 컬럼(`TEXT`)을 정의합니다. |
-| `timestamp` | 날짜/시간 컬럼(`TIMESTAMP`)을 정의합니다. |
-| `primaryKey()` | 해당 컬럼을 기본키(Primary Key)로 설정합니다. |
-| `notNull()` | `NOT NULL` 제약 조건을 추가하여 필수 값으로 만듭니다. |
-| `defaultNow()` | 값이 없을 때 현재 시간(`NOW()`)을 기본값으로 사용합니다. |
-| `$inferSelect` | 테이블 스키마에서 조회용 TypeScript 타입을 자동 추론합니다. |
-| `$inferInsert` | 테이블 스키마에서 삽입용 TypeScript 타입을 자동 추론합니다. |
-
----
-
-## 3. 모듈 생성 및 설정
-
-NestJS CLI로 모듈 구조를 잡습니다.
-
+이제 터미널을 열고 NestJS CLI로 빈 깡통 모듈을 생성해줘. (없으면 직접 폴더/파일 만들어도 돼)
 ```bash
 nest g resource portfolios
-npm install nestjs-zod zode drizzle-zod
+# 물어보면 REST API를 선택해!
 ```
-
-```typescript
-// src/portfolios/portfolios.module.ts
-import { Module } from '@nestjs/common';
-import { PortfoliosService } from './portfolios.service';
-import { PortfoliosController } from './portfolios.controller';
-// DatabaseModule은 Global이라 import 안 해도 됨
-
-@Module({
-  controllers: [PortfoliosController], // 요청을 받는 컨트롤러
-  providers: [PortfoliosService],      // 비즈니스 로직을 처리하는 서비스
-})
-export class PortfoliosModule {}
-```
-
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `@Module()` | 이 클래스가 NestJS 모듈임을 알리는 데코레이터입니다. |
-| `controllers` | 이 모듈에 속한 컨트롤러(요청 처리기) 목록을 정의합니다. |
-| `providers` | 이 모듈에서 사용할 서비스(비즈니스 로직) 및 의존성 목록을 정의합니다. |
 
 ---
 
-## 4. DTO: drizzle-zod를 이용한 완벽한 SSOT 구현
+## 🧩 2단계: 완벽한 DTO 생성 (SSOT) 🟢
 
-`drizzle-zod`를 사용하면 **DB 스키마로부터 Zod 검증 로직을 자동 생성**할 수 있습니다.
-DB 컬럼의 제약 조건(길이, 타입, Null 여부)이 그대로 검증 규칙이 되며, 추가 규칙을 `refine`으로 붙일 수 있습니다.
+백엔드 파트너 Zod 라이브러리로 DTO를 뽑아낼 거야. `nestjs-zod` 와 `drizzle-zod`를 쓴다!
 
-> **설치**: `npm install nestjs-zod zode drizzle-zod`
+방금 1단계에서 짠 `portfolios` DB 스키마 단 하나만 수정하면, 유효성 검사 에러 로직(DTO)까지 알아서 연동되어 싹 다 바뀌는 궁극의 **단일 진실 공급원(SSOT)** 구조야.
 
 ```typescript
 // src/portfolios/dto/create-portfolio.dto.ts
 import { createZodDto } from 'nestjs-zod';
 import { createInsertSchema } from 'drizzle-zod';
-import { portfolios } from '@repo/schema'; // Drizzle 테이블 정의
-import { z } from 'zod';
+import { portfolios } from '@repo/schema'; // 방금 짠 스키마 가져오기
 
-// 1. Drizzle 스키마로부터 Zod 스키마 자동 생성 (SSOT)
-const CreatePortfolioSchema = createInsertSchema(portfolios, {
-  // 추가 검증 규칙 정의 (DB 스키마 + @)
-  name: (schema) => schema.min(2, '이름은 최소 2글자 이상이어야 합니다.').max(50),
-  description: (schema) => schema.max(200).optional(),
+// 1. Zod 스키마로 자동 번역!
+const CreateSchema = createInsertSchema(portfolios, {
+  // DB 모델에는 없는 Zod만의 깐깐한 규칙을 추가!
+  name: (s) => s.min(2, '포트폴리오 이름은 2글자 이상 적어주세요!').max(50),
+  description: (s) => s.max(200).optional(),
 }).pick({
-  name: true,        // 필요한 필드만 선택
-  description: true,
+  name: true,        // 클라이언트가 입력해야 할 건 이름과 설명뿐이야.
+  description: true, // userId 같은 건 헤더의 토큰에서 빼낼 거니까 DTO에선 지움!
 });
 
-// 2. NestJS DTO로 변환
-export class CreatePortfolioDto extends createZodDto(CreatePortfolioSchema) {}
+// 2. 완벽한 DTO 클래스 탄생
+export class CreatePortfolioDto extends createZodDto(CreateSchema) {}
 ```
 
+수정용 DTO도 1초 컷이야.
 ```typescript
 // src/portfolios/dto/update-portfolio.dto.ts
 import { createZodDto } from 'nestjs-zod';
 import { CreatePortfolioDto } from './create-portfolio.dto';
 
-// Create 스키마를 가져와서 모든 필드를 optional로 변경 (Partial)
-const UpdatePortfolioSchema = CreatePortfolioDto.schema.partial();
-
-export class UpdatePortfolioDto extends createZodDto(UpdatePortfolioSchema) {}
+// Create DTO의 구성 요소를 모조리 Optional(?)로 바꾼다.
+export class UpdatePortfolioDto extends createZodDto(
+  CreatePortfolioDto.schema.partial()
+) {}
 ```
 
-> **Tip**: `main.ts`에 `app.useGlobalPipes(new ZodValidationPipe());`가 등록되어 있어야 합니다.
-
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `createInsertSchema` | `drizzle-zod` 함수로, Drizzle 테이블 정의를 기반으로 삽입용 Zod 스키마를 생성합니다. |
-| `portfolios` | Drizzle 테이블 객체입니다. 스키마 생성의 원천(Source)이 됩니다. |
-| `schema.min(n)` | 자동 생성된 Zod 스키마에 추가 규칙(최소 길이)을 덧붙입니다. |
-| `.pick({...})` | 생성된 전체 스키마에서 클라이언트로부터 입력받을 필드만 선택합니다. (userId, createdAt 등 제외) |
-| `createZodDto` | `nestjs-zod` 함수로, Zod 스키마를 NestJS DTO 클래스로 변환하여 타입 추론과 Swagger 문서를 자동화합니다. |
-| `.partial()` | 스키마의 모든 필드를 선택적(Optional)으로 만듭니다. (수정 시 유용) |
 
 ---
 
-## 5. 서비스 구현 (비즈니스 로직)
+## 🧪 따라해보기: 컨트롤러와 서비스 엮어서 CRUD 완성하기
 
-실제 로직을 구현합니다. Drizzle을 사용하여 DB와 통신합니다.
+부품이 다 모였어. 이제 엔진(서비스)을 조립하고, 핸들(컨트롤러)과 연결만 하면 완성돼!
+
+### Step 1. 비즈니스 로직(서비스) 작성
 
 ```typescript
 // src/portfolios/portfolios.service.ts
@@ -157,175 +152,161 @@ import { UpdatePortfolioDto } from './dto/update-portfolio.dto';
 
 @Injectable()
 export class PortfoliosService {
-  constructor(
-    @Inject(DATABASE_TOKEN) private readonly db: Database, // DB 주입
-  ) {}
+  // DB 전용 핫라인 주입!
+  constructor(@Inject(DATABASE_TOKEN) private readonly db: Database) {}
 
-  // 1. 생성
+  // 1. 생성 로직
   async create(userId: string, dto: CreatePortfolioDto) {
-    const newPortfolio: NewPortfolio = {
-      ...dto,
-      userId, // 현재 로그인한 사용자 ID 할당
-    };
+    // DTO(이름, 설명)에 시스템 변수(유저ID)를 결합
+    const newPortfolio: NewPortfolio = { ...dto, userId };
 
     const [created] = await this.db
       .insert(portfolios)
       .values(newPortfolio)
-      .returning(); // 생성된 데이터 반환
+      .returning(); // Postgres 마법: INSERT 한 데이터를 꺼내줌
 
     return created;
   }
 
-  // 2. 전체 조회 (내 포트폴리오만)
+  // 2. 다건 조회 로직 (반드시 내 것만 나와야 함!!)
   async findAll(userId: string) {
     return this.db.query.portfolios.findMany({
-      where: eq(portfolios.userId, userId), // 내 것만 필터링
-      orderBy: (p, { desc }) => [desc(p.createdAt)], // 최신순 정렬
+      where: eq(portfolios.userId, userId), 
+      orderBy: (p, { desc }) => [desc(p.createdAt)], // 최신순
     });
   }
 
-  // 3. 단일 조회
+  // 3. 단일 조회 (보안 체크 포함)
   async findOne(userId: string, id: number) {
     const portfolio = await this.db.query.portfolios.findFirst({
-      where: and(
-        eq(portfolios.id, id),
-        eq(portfolios.userId, userId) // 내 것인지 확인
-      ),
+      // id도 맞고, userId도 맞아야 함 (남의 포트폴리오는 못 보게 방어)
+      where: and(eq(portfolios.id, id), eq(portfolios.userId, userId)),
     });
 
     if (!portfolio) {
-      throw new NotFoundException(`포트폴리오 #${id}를 찾을 수 없습니다.`);
+      throw new NotFoundException(`포트폴리오 #${id}를 찾을 수 없당.`);
     }
-
     return portfolio;
-  }
-
-  // 4. 수정
-  async update(userId: string, id: number, dto: UpdatePortfolioDto) {
-    // 먼저 존재하는지 확인 (재사용)
-    await this.findOne(userId, id);
-
-    const [updated] = await this.db
-      .update(portfolios)
-      .set({ ...dto, updatedAt: new Date() }) // 수정일 업데이트
-      .where(and(eq(portfolios.id, id), eq(portfolios.userId, userId)))
-      .returning();
-
-    return updated;
-  }
-
-  // 5. 삭제
-  async remove(userId: string, id: number) {
-    await this.findOne(userId, id); // 존재 확인
-
-    await this.db
-      .delete(portfolios)
-      .where(and(eq(portfolios.id, id), eq(portfolios.userId, userId)));
-      
-    return { success: true, message: `포트폴리오 #${id} 삭제 완료` };
   }
 }
 ```
 
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `@Injectable()` | 이 클래스가 DI 컨테이너에서 관리되는 **Provider**임을 선언합니다. |
-| `@Inject(TOKEN)` | 커스텀 프로바이더(여기선 DB 연결 객체)를 주입받을 때 사용합니다. |
-| `.insert().values()` | Drizzle의 데이터 삽입 쿼리 빌더입니다. |
-| `.returning()` | Postgres의 `RETURNING` 구문을 실행하여, 삽입/수정된 데이터를 바로 반환받습니다. |
-| `.query.findMany()` | 조건을 만족하는 여러 행을 조회합니다. |
-| `.query.findFirst()` | 조건을 만족하는 첫 번째 행만 조회합니다. (없으면 `undefined`) |
-| `eq(col, val)` | Drizzle 조건: 컬럼 값과 val이 **같은지(Equal)** 비교합니다. |
-| `and(cond1, cond2)` | Drizzle 조건: 여러 조건이 **모두 참(AND)** 이어야 함을 명시합니다. |
-| `NotFoundException` | 404 Not Found HTTP 에러를 발생시키는 NestJS 내장 예외입니다. |
+### Step 2. API 엔드포인트(컨트롤러) 뚫기
 
----
-
-## 6. 컨트롤러 구현 (요청 처리)
-
-HTTP 요청을 받아 서비스로 전달합니다. Zod 파이프가 자동으로 DTO를 검증합니다.
+이제 100% 뚫어주면 돼. 단, 모든 API는 로그인된 사용자만 접근할 수 있게 경비원(Guard)을 세우자.
 
 ```typescript
 // src/portfolios/portfolios.controller.ts
-import { 
-  Controller, Get, Post, Body, Patch, Param, Delete, 
-  UseGuards, ParseIntPipe 
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { PortfoliosService } from './portfolios.service';
 import { CreatePortfolioDto } from './dto/create-portfolio.dto';
-import { UpdatePortfolioDto } from './dto/update-portfolio.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { User } from '../auth/types'; // User 타입 정의 필요
+import { User } from '../auth/types'; // (내가 만든 유저 인터페이스)
 
-@Controller('portfolios') // URL 접두사: /portfolios
-@UseGuards(JwtAuthGuard)  // 이 컨트롤러의 모든 요청은 로그인 필요
+// 1. 라우터 접두사와 전역 경비원 배치
+@Controller('portfolios') 
+@UseGuards(JwtAuthGuard)  
 export class PortfoliosController {
   constructor(private readonly portfoliosService: PortfoliosService) {}
 
+  // 2. 생성 API (POST /portfolios)
   @Post()
   create(
-    @CurrentUser() user: User, // 커스텀 데코레이터로 유저 정보 가져옴
-    @Body() dto: CreatePortfolioDto // ZodValidationPipe가 자동 검증
+    @CurrentUser() user: User,       // 👈 누가 요청했는지 사원증에서 뽑기
+    @Body() dto: CreatePortfolioDto  // 👈 입구에서 Zod가 데이터 검사 다 해줌
   ) {
+    // 컨트롤러는 겁나 쿨하게 파라미터만 넘겨주고 퇴근!
     return this.portfoliosService.create(user.id, dto);
   }
 
+  // 3. 다건 조회 API (GET /portfolios)
   @Get()
   findAll(@CurrentUser() user: User) {
     return this.portfoliosService.findAll(user.id);
   }
 
+  // 4. 단일 조회 API (GET /portfolios/:id)
   @Get(':id')
   findOne(
     @CurrentUser() user: User,
-    @Param('id', ParseIntPipe) id: number // URL 파라미터를 숫자로 변환
+    @Param('id', ParseIntPipe) id: number // 👈 문자를 숫자로 강제 변환
   ) {
     return this.portfoliosService.findOne(user.id, id);
-  }
-
-  @Patch(':id')
-  update(
-    @CurrentUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdatePortfolioDto
-  ) {
-    return this.portfoliosService.update(user.id, id, dto);
-  }
-
-  @Delete(':id')
-  remove(
-    @CurrentUser() user: User,
-    @Param('id', ParseIntPipe) id: number
-  ) {
-    return this.portfoliosService.remove(user.id, id);
   }
 }
 ```
 
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `@Controller('path')` | 이 클래스가 요청을 받는 **컨트롤러**임을 선언하고, 기본 라우트 경로를 설정합니다. |
-| `@UseGuards(Guard)` | 해당 클래스나 메서드에 **인증/인가 가드** 를 적용합니다. 여기선 JWT 인증을 강제합니다. |
-| `@Post()`, `@Get()` | HTTP 메서드(POST, GET, PATCH, DELETE)와 매핑되는 핸들러임을 선언합니다. |
-| `@Body()` | 요청 본문(Body) 데이터를 추출하여 DTO에 매핑합니다. |
-| `@Param('key')` | URL 경로 파라미터(예: `:id`) 값을 추출합니다. |
-| `@CurrentUser()` | (커스텀) 요청객체(`req.user`)에서 로그인한 사용자 정보를 추출하는 커스텀 데코레이터입니다. |
-| `ParseIntPipe` | URL 파라미터(문자열)를 **정수(number)** 로 변환해주는 파이프입니다. 실패 시 400 에러를 냅니다. |
+---
+
+## 💼 베스트 프랙티스와 실무 팁 🟡
+
+### 1. 보안의 핵심: 소유권 증명 (Ownership Check)
+`findAll` 이나 `findOne`을 짤 때 습관적으로 `where: eq(portfolios.id, id)` 로만 끝내면 **최악의 보안 사고(IDOR 취약점)** 가 터질 수 있어. 
+악의적인 해커가 `GET /portfolios/999` 라고 아무 아이디나 찍어 넣으면, 생판 남의 계좌 정보가 다 떠버리거든.
+코드에서 본 것처럼 반드시 **`and(eq(id), eq(userId))` 조건을 걸어서 무조건 '내 자산'인지 교차 검증**해야 해!
+
+### 2. Drizzle `$infer...` 타입의 재사용
+실무에선 `User`나 `Portfolio` 같은 타입을 `interfaces` 폴더에 일일이 치지 마. 
+Drizzle 스키마 파일에서 `typeof 테이블명.$inferSelect` 로 내보낸(export) 타입을 앱 어디서든 import해서 재활용해. 이래야 나중에 DB 컬럼이 추가돼도 TypeScript 에러 레이더망에 다 걸려서 유지보수가 매우 쉬워져.
 
 ---
 
-## 7. 마무리: 전체 흐름 요약
+## 💥 에러 해결 카탈로그
 
-이 코드가 실행될 때 어떤 일이 일어나는지 봅시다.
+> 에러 메시지가 뜨면 Ctrl+F로 검색해봐.
 
-1.  **요청 도착**: `POST /portfolios` 요청이 들어옵니다.
-2.  **Guard 실행**: `JwtAuthGuard`가 헤더의 JWT 토큰을 검증합니다. 실패하면 `401 Unauthorized`.
-3.  **Pipe 실행 (`nestjs-zod`)**: `ZodValidationPipe`가 `CreatePortfolioSchema`에 따라 데이터를 검증합니다. 실패하면 `400 Bad Request`와 상세 에러 메시지가 반환됩니다.
-4.  **Controller 실행**: `create()` 메서드가 호출됩니다.
-5.  **Service 실행**: `portfoliosService.create()`가 호출되어, Drizzle을 통해 DB에 저장합니다.
-6.  **응답 반환**: 생성된 포트폴리오 객체가 JSON으로 클라이언트에게 반환됩니다.
+### ❌ `TypeError: Cannot read properties of undefined (reading 'insert')`
 
-이제 여러분은 NestJS, Drizzle, Zod를 활용한 **타입 안전(Type-Safe)** 하고 **확장 가능**한 백엔드 서비스를 구축할 수 있습니다.
+**현상:** POST 요청을 날렸더니 500 에러를 뱉으며 터미널에 저런 로그가 뜸.
+**원인:** `PortfoliosService` 클래스 상단의 `constructor(@Inject(DATABASE_TOKEN) private readonly db: Database) {}` 부분에 `@Inject(...)` 데코레이터를 빼먹은 거야. NestJS는 DB 객체를 꽂아주지 않았으니 `this.db`가 `undefined` 인 상태로 `insert`를 날린 거지!
+**해결책:** `@Inject`를 제대로 달았는지 확인해.
+
+### ❌ `400 Bad Request: Expected string, received object`
+
+**원인:** 포트폴리오를 만들 때, `nestjs-zod` 파이프라인에서 입구컷 당하는 중. Postman이나 프론트엔드에서 데이터를 보낼 때 객체 매핑이 어긋난 거야.
+**해결책:** 서버 코드 잘못이 아냐! `CreatePortfolioDto`에 적힌 스펙 그대로 `{ "name": "내 투자조합" }` 같은 올바른 JSON 페이로드를 날렸는지 요청 쪽을 점검해 볼 것.
+
+---
+
+## �️ 치트시트 — 실무 요약 카드
+
+**[개발 흐름(Workflow) 한눈에 보기]**
+1. **DB 레벨:** `schema.ts` 에 `pgTable` 뼈대 선언
+2. **코드 레벨:** `nest g resource` 로 모듈/컨트롤러/서비스 생성
+3. **DTO 통제:** `drizzle-zod` 로 스키마에서 DTO 동기화
+4. **서비스 두뇌:** `constructor(@Inject(DATABASE_TOKEN))` 로 불러서 로직 작성
+5. **라우터 입구:** 컨트롤러에 가드 치고(`@UseGuards`), 라우터 열기(`@Get`)
+
+---
+
+## 📝 마무리 퀴즈
+
+**Q1. NestJS 프레임워크와 Zod 라이브러리 연동 시, '단일 진실 공급원(SSOT)' 이라는 용어의 장점을 가장 잘 설명한 것은 무엇인가?**
+
+- A) 데이터베이스가 한 군데에만 서버를 두어 보안이 완벽해진다.
+- B) DB 스키마 구조 코드를 한 번만 바꾸면, 데이터베이스 구조는 물론 클라이언트를 막아주는 데이터 유효성 검증(DTO) 규칙까지 알아서 함께 변해서 실수를 없애준다.
+- C) 모든 컴포넌트(Controller, Service)를 하나의 모듈 안에서 전부 관리하는 아키텍처 패턴을 말한다.
+
+> ✅ **정답: B**
+> **설명:** DB 스키마 따로, 인터페이스(Interface) 타입 따로, 유효성 검사 클래스 따로 만들다가 이름(name) 최대 길이를 50자에서 100자로 늘리려면 세 군데 코드를 다 고쳐야 해. SSOT 패턴은 제일 근원(Source)인 DB 스키마 하나만 고치면 전부 연동돼서 바뀌는 마법이야!
+
+**Q2. 다음 중 컨트롤러에서 `@CurrentUser()` 가 아무리 읽어도 무조건 값을 채워 올 수 없도록 실패하게 만드는 원인은?**
+
+- A) 컨트롤러 클래스 상단에 `@UseGuards(JwtAuthGuard)`를 붙이지 않았다.
+- B) 유저가 헤더에 올바른 `Authorization: Bearer <token>` 값을 넣어서 보냈다.
+- C) DTO에 `@IsString()` 속성을 빼먹었다.
+
+> ✅ **정답: A**
+> **설명:** 입구에 경비원(가드)를 세우지 않으면, 당연히 신분증(토큰) 도 검사하지 않고, 따라서 요청(`request`) 객체 안에 유저 정보도 꽂히지 않아! 
+
+**Q3. `findAll` (회원 포트폴리오 목록 전체 조회) 기능을 짤 때, 보안을 위해 `where: eq(portfolios.userId, userId)` 코드를 반드시 넣어야 하는 이유는 무엇을 막기 위함인가?**
+
+> ✅ **정답:** 권한 없는 다른 사용자가 남의 포트폴리오 정보를 무단으로 열람(IDOR 보안 취약점)하는 것을 막기 위함!
+> **설명:** 무조건 "DB 안에 있는 모든 포트폴리오 다 내놔!" 가 아니라, "로그인한 당신(userId)의 소유권이 확인된 포트폴리오만 내놔!" 로 필터를 걸어야 해.
+
+---
+
+## 🔗 더 알아보기
+- [Next.js와 NestJS 마이크로서비스 연동 아키텍처 패턴](../../../reference/nestjs/OVERVIEW/Controllers.md) (가상 링크)
+- [Supabase RLS(Row Level Security)로 한 단계 더 강력하게 방어하기](../../../reference/supabase/auth.md) (가상 링크)

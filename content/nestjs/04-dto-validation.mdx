@@ -1,575 +1,289 @@
 ---
 title: "04. DTO와 검증"
-description: "DTO(Data Transfer Object)는 데이터 전송을 위한 객체입니다. API 요청/응답의 구조를 정의하고, 유효성 검사 규칙을 명시합니다."
-date: "2026-02-16"
+description: "안전한 데이터 통신의 핵심인 DTO(Data Transfer Object)와 파이프를 활용한 강력한 유효성 검사 기법을 배웁니다."
+date: "2026-02-26"
 ---
 
-## DTO란?
+# 🏷️ 04. DTO와 검증 — 쓰레기 데이터는 입구 컷 (Garbage In, Error Out)
 
-### 개념 정의
-
-**DTO(Data Transfer Object)** 는 데이터 전송을 위한 객체입니다. API 요청/응답의 구조를 정의하고, 유효성 검사 규칙을 명시합니다.
-
-> 💡 **핵심 통찰**: DTO는 API의 "계약서"입니다. 클라이언트와 서버가 어떤 형태의 데이터를 주고받을지 명확히 정의합니다.
-
-### 왜 DTO가 필요한가?
-
-**문제점: DTO 없이 데이터 처리**
-
-```typescript
-// ❌ 문제: 어떤 데이터가 들어올지 모름
-@Post()
-create(@Body() data: any) {  // any = 타입 안전성 없음
-  // data.email이 있을까? 문자열일까? 이메일 형식일까?
-  // 실행해봐야 알 수 있음 → 런타임 에러 위험!
-}
-```
-
-**해결책: DTO로 구조 정의**
-
-```typescript
-// ✅ 해결: 명확한 타입 + 자동 검증
-class CreateUserDto {
-  @IsEmail()
-  email: string;
-
-  @IsString()
-  @Length(2, 50)
-  name: string;
-}
-
-@Post()
-create(@Body() dto: CreateUserDto) {
-  // dto는 이미 검증됨! 안전하게 사용 가능
-}
-```
-
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `@Post()` | POST 요청을 처리하는 핸들러입니다. |
-| `@Body()` | 요청 본문을 `CreateUserDto` 타입으로 추출합니다. |
-| `class CreateUserDto` | 데이터 구조와 검증 규칙을 정의한 DTO 클래스입니다. |
-| `@IsEmail()` | `email` 필드가 이메일 형식이 아니면 자동으로 400 에러를 반환합니다. |
-| `@IsString()` | `name` 필드가 문자열이 아니면 에러를 반환합니다. |
-| `@Length(2, 50)` | `name` 필드의 길이가 2~50자가 아니면 에러를 반환합니다. |
-
+## 📋 목차
+- [📌 이 문서를 읽기 전에](#-이-문서를-읽기-전에)
+- [🤔 왜 알아야 하는가](#-왜-알아야-하는가)
+- [🏗️ 비유로 먼저 이해하기](#-비유로-먼저-이해하기)
+- [🧩 DTO와 class-validator — 철통 보안 문지기 🟡](#-dto와-class-validator--철통-보안-문지기-)
+- [🧩 내장 파이프와 유틸리티 🟢](#-내장-파이프와-유틸리티-)
+- [🧪 따라해보기: 실전 회원가입 DTO 깎아보기](#-따라해보기-실전-회원가입-dto-깎아보기)
+- [💼 베스트 프랙티스와 실무 팁](#-베스트-프랙티스와-실무-팁)
+- [💥 에러 해결 카탈로그](#-에러-해결-카탈로그)
+- [🗂️ 치트시트](#️-치트시트)
+- [📝 마무리 퀴즈](#-마무리-퀴즈)
 
 ---
 
-## class-validator 설정
+## 📌 이 문서를 읽기 전에
 
-### 설치
+**⏱️ 예상 읽기 시간:** 15분
 
-```bash
-npm install class-validator class-transformer
-```
+**🧳 전제 지식 체크리스트**
+- [ ] 데코레이터(`@`) 문법의 기본 형태를 안다.
+- [ ] 02장 컨트롤러에서 HTTP 본문을 가져오는 `@Body()` 사용법을 보았다.
 
-### 글로벌 ValidationPipe 설정
+**🗺️ 이 문서의 흐름**
+데이터 검증의 필요성 → `class-validator` 설정과 사용법 → 파이프(Pipe)로 형변환하기 → 최신 방식인 Zod 연동 → 자주 겪는 에러
+
+**🎯 이 문서를 다 읽으면 할 수 있는 것**
+- [ ] 클라이언트가 보낸 데이터가 숫자인지, 이메일 형식인지 100% 보장하는 코드를 작성할 수 있다.
+- [ ] 불필요한/악의적인 필드(`admin: true` 등)를 서버 입구에서 자동으로 걸러낼 수 있다.
+- [ ] Zod 스키마를 이용해 DB 모델과 완벽하게 일치하는 DTO를 뽑아낼 수 있다.
+
+---
+
+## 🤔 왜 알아야 하는가
+
+프론트엔드에서 아무리 폼(Form) 검증을 빡세게 해놔도, 해커나 악성 봇은 Postman 같은 툴로 서버 API에 직접 이상한 문자열을 꽂아 넣어.
+만약 나이(age) 필드에 `{"age": "백살"}` 이라는 문자열이 그대로 DB에 들어가려고 한다면? 서버가 뻗거나 데이터베이스가 오염되겠지?
+DTO와 파이프는 이런 **"치명적인 쓰레기 데이터"를 컨트롤러에 도착하기도 전에 가차 없이 쳐내는 방어막**이야.
+
+---
+
+## 🏗️ 비유로 먼저 이해하기
+
+> 🧒 **5살에게 설명한다면?**
+> **DTO (Data Transfer Object)** 는 깐깐한 **고급 클럽의 입장 제한 규칙표**야.
+> "나이는 숫자여야 해. 이름은 무조건 2글자 이상이어야 해. 이메일 형식 아니면 입구 컷!"
+> 
+> **ValidationPipe (유효성 검사 파이프)** 는 그 규칙표를 들고 서 있는 덩치 큰 **기도(문지기)** 야. 
+> 손님(Request)이 오면 신분증(Body 데이터)을 쫙 훑어보고, 규칙표에 하나라도 어긋나면 "돌아가라(400 Bad Request)" 하고 문전박대해버려. 덕분에 클럽 안(컨트롤러와 서비스)은 항상 물이 깨끗하지!
+
+---
+
+## 🧩 DTO와 class-validator — 철통 보안 문지기 🟡
+
+> 🎯 **이 섹션을 읽고 나면:** 
+> - 전역 파이프 `useGlobalPipes`의 필수 설정 3가지를 설명할 수 있다.
+> - `@Is...` 계열 데코레이터를 자유롭게 조합할 수 있다.
+
+> 🤔 **잠깐, 먼저 생각해봐**
+> TypeScript는 컴파일 타임에만 작동해. 실행 중(런타임)에 클라이언트가 몰래 JSON을 보내면 TypeScript의 `interface`는 그걸 막아줄 수 있을까?
+> (정답: 못 막아! 그래서 런타임에 살아남는 `class`와 데코레이터를 쓰는 거야.)
+
+### 1단계: 전역 글로벌 파이프(기도) 세우기
+프로젝트 전체에 단 한 번만 설정하면 돼. (`main.ts`)
 
 ```typescript
-// main.ts
 import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   
   app.useGlobalPipes(new ValidationPipe({
-    // 핵심 옵션들
-    whitelist: true,           // DTO에 없는 속성 자동 제거
-    forbidNonWhitelisted: true, // DTO에 없는 속성이 있으면 에러
-    transform: true,           // 타입 자동 변환
-    
-    // 에러 응답 커스터마이징
-    exceptionFactory: (errors) => {
-      const messages = errors.map(err => ({
-        field: err.property,
-        constraints: Object.values(err.constraints || {}),
-      }));
-      return new BadRequestException({ 
-        message: 'Validation failed', 
-        errors: messages 
-      });
-    },
+    whitelist: true,            // 1. 규칙표에 없는 속성은 스윽 무시/삭제해버림 (핵심 보안!)
+    forbidNonWhitelisted: true, // 2. 규칙표에 없는 걸 보내면 아예 400 에러를 뱉음 (선택)
+    transform: true,            // 3. 문자열 "1"을 알아서 숫자 1로 바꿔줌 (개꿀 기능)
   }));
   
-  await app.listen(3001);
+  await app.listen(3000);
 }
 ```
 
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `app.useGlobalPipes()` | 애플리케이션 전체 라우트에 적용될 파이프를 등록합니다. |
-| `new ValidationPipe()` | NestJS 내장 유효성 검사 파이프입니다. `class-validator` 데코레이터를 기반으로 동작합니다. |
-| `whitelist: true` | DTO에 정의되지 않은 속성(Property)은 자동으로 제거합니다. (보안) |
-| `forbidNonWhitelisted: true` | whitelist 옵션과 함께 사용하며, 정의되지 않은 속성이 있으면 요청 자체를 거부(400 에러)합니다. |
-| `transform: true` | 요청 데이터를 DTO 클래스의 인스턴스로 자동 변환합니다. (primitive 타입 변환 포함) |
-| `exceptionFactory` | 유효성 검사 실패 시 발생할 에러 응답 형식을 커스터마이징합니다. |
-
-
-> 📘 **Deep Dive**: [Validation](../../../reference/nestjs/TECHNIQUES/Validation.md) 문서에서 더 많은 옵션을 확인하세요.
-
----
-
----
-
-## 검증 데코레이터
-
-### 기본 타입 검증
+### 2단계: DTO 클래스(규칙표) 만들기
+필요한 라이브러리를 설치하고(`npm i class-validator class-transformer`), 
+마자막으로 DTO 클래스를 만들어 데코레이터를 덕지덕지 붙여주면 끝!
 
 ```typescript
-import { 
-  IsString, 
-  IsNumber, 
-  IsBoolean, 
-  IsArray,
-  IsDate,
-} from 'class-validator';
+import { IsEmail, IsString, Length, IsOptional, Min } from 'class-validator';
 
-class ExampleDto {
-  @IsString()
-  name: string;          // 문자열만 허용
-
-  @IsNumber()
-  count: number;         // 숫자만 허용
-
-  @IsBoolean()
-  active: boolean;       // true/false만 허용
-
-  @IsArray()
-  tags: string[];        // 배열만 허용
-
-  @IsDate()
-  @Type(() => Date)      // 문자열 → Date 변환 필요
-  createdAt: Date;
-}
-```
-
-### 문자열 검증
-
-```typescript
-import { 
-  IsEmail, 
-  IsUrl, 
-  IsUUID, 
-  Length, 
-  MinLength, 
-  MaxLength,
-  Matches,
-  IsIn,
-} from 'class-validator';
-
-class UserDto {
-  @IsEmail({}, { message: '올바른 이메일 형식이 아닙니다' })
+export class CreateUserDto {
+  @IsEmail({}, { message: '제대로 된 이메일을 적어주세요!' })
   email: string;
 
   @IsString()
-  @Length(2, 50, { message: '이름은 2~50자여야 합니다' })
+  @Length(2, 20)
   name: string;
 
-  @IsString()
-  @MinLength(8, { message: '비밀번호는 8자 이상이어야 합니다' })
-  @Matches(/(?=.*[A-Z])(?=.*[0-9])/, {
-    message: '비밀번호는 대문자와 숫자를 포함해야 합니다',
-  })
-  password: string;
-
-  @IsUrl()
-  website: string;
-
-  @IsIn(['user', 'admin', 'moderator'])
-  role: string;
-
-  @IsUUID()
-  referrerId: string;
+  @IsOptional()  // 👈 안 보내도 상관없다는 뜻!
+  @Min(14, { message: '14세 이상만 가입 가능합니다.' })
+  age?: number;
 }
 ```
 
-### 숫자 검증
-
-```typescript
-import { 
-  IsPositive, 
-  IsNegative, 
-  Min, 
-  Max, 
-  IsInt,
-  IsDecimal,
-} from 'class-validator';
-
-class StockFilterDto {
-  @IsNumber()
-  @Min(0, { message: '가격은 0 이상이어야 합니다' })
-  @Max(1000000, { message: '가격이 너무 큽니다' })
-  minPrice: number;
-
-  @IsInt()
-  @IsPositive()
-  page: number;
-
-  @IsDecimal({ decimal_digits: '2' })
-  changePercent: string;  // "12.34" 형태
-}
-```
-
-### 선택적 필드와 기본값
-
-```typescript
-import { IsOptional, IsNotEmpty, ValidateIf } from 'class-validator';
-
-class SearchDto {
-  @IsOptional()  // 없어도 됨
-  @IsString()
-  keyword?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Transform(({ value }) => value ?? 1)  // 기본값 설정
-  page?: number;
-
-  // 조건부 검증: keyword가 있을 때만 검증
-  @ValidateIf(o => o.keyword !== undefined)
-  @IsNotEmpty()
-  category: string;
-}
-```
+이제 컨트롤러에서 `@Body() dto: CreateUserDto` 라고 적기만 하면, 컨트롤러 내부 코드부터는 `dto.age`가 **100% 완벽한 숫자형이거나, 아니면 아예 존재하지 않는다는 것**을 맘 놓고 확신할 수 있어.
 
 ---
 
-## 유용한 내장 파이프 (Built-in Pipes)
+## 🧩 내장 파이프와 유틸리티 🟢
 
-데이터 검증과 변환을 위해 NestJS는 다양한 파이프를 제공합니다.
+복잡한 객체 덩어리(`@Body`)는 DTO와 `class-validator`가 처리해 주지만, 단순한 URL 변수(`@Param`, `@Query`) 검사에는 **내장 파이프(Built-in Pipe)** 가 최고야.
 
-### Parse* 파이프 (형변환 및 검증)
+### 대표적인 내장 파이프 4가지
 
-| 파이프 | 역할 | 예시 |
-|--------|------|------|
-| `ParseIntPipe` | 문자열 → 정수 변환 | `@Param('id', ParseIntPipe) id: number` |
-| `ParseBoolPipe` | 문자열 → 불린 변환 | `@Query('isPublic', ParseBoolPipe) isPublic: boolean` |
-| `ParseArrayPipe` | 문자열 → 배열 변환 | `@Query('ids', new ParseArrayPipe({ items: Number, separator: ',' })) ids: number[]` |
-| `ParseUUIDPipe` | UUID 형식 검증 | `@Param('id', ParseUUIDPipe) id: string` |
-| `DefaultValuePipe` | 값이 없을 때 기본값 제공 | `@Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number` |
+1. **`ParseIntPipe`**: 문자열을 무조건 정수로 바꿈. 실패하면 400 에러!
+   ```typescript
+   @Get(':id')
+   findOne(@Param('id', ParseIntPipe) id: number) {}
+   ```
+2. **`ParseBoolPipe`**: "true", "false", "1", "0" 등을 깔끔한 불리언 타입으로.
+3. **`ParseUUIDPipe`**: 문자열이 UUID 포맷인지 깐깐하게 검증.
+4. **`DefaultValuePipe`**: 쿼리스트링이 안 넘어왔을 때 기본값 세팅.
+   ```typescript
+   @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number
+   ```
+
+### Mapped Types (코드 복붙 방지기)
+회원가입 용 DTO(`CreateDto`)가 있는데, 정보 수정 용 DTO(`UpdateDto`)를 만들고 싶을 때, 내용물을 또 다 복붙해야 할까? NO!
 
 ```typescript
-@Get(':id')
-async findOne(
-  @Param('id', ParseIntPipe) id: number,
-  @Query('active', new DefaultValuePipe(true), ParseBoolPipe) active: boolean,
-) {
-  // id는 반드시 숫자, active는 기본값 true인 불린
-}
-```
+import { PartialType } from '@nestjs/mapped-types';
 
-> 📘 **Deep Dive**: [Pipes](../../../reference/nestjs/OVERVIEW/Pipes.md) 문서 참고.
+// UpdateDto는 CreateDto와 똑같지만, 모든 필드가 '선택(Optional)'으로 바뀜!
+export class UpdateUserDto extends PartialType(CreateUserDto) {}
+```
+이 외에도 필드 일부만 가져오는 `PickType`, 일부만 버리는 `OmitType` 등 강력한 상속 기능이 제공돼.
 
 ---
 
-## Mapped Types (DTO 변환 유틸리티)
+## 🧪 따라해보기: 실전 회원가입 DTO 깎아보기
 
-기존 DTO를 기반으로 새로운 DTO를 생성하여 코드 중복을 줄입니다.
-
-> ⚠️ **주의**: `@nestjs/swagger`를 사용 중이라면 거기서 `PartialType` 등을 가져와야 Swagger 문서에 반영됩니다. (아니면 `@nestjs/mapped-types`)
-
-### 1. PartialType (모든 필드 선택적)
+요즘 대세인 **Zod** 라이브러리를 활용해 볼 거야. 
+NestJS의 전통적인 `class-validator` 대신, Drizzle 스키마와 100% 호환되는 `nestjs-zod`를 사용하는 현대적인 방식이지!
 
 ```typescript
-// create-cat.dto.ts
-export class CreateCatDto {
-  @IsString()
-  name: string;
-  
-  @IsInt()
-  age: number;
-}
-
-// update-cat.dto.ts
-import { PartialType } from '@nestjs/mapped-types'; // 또는 @nestjs/swagger
-
-export class UpdateCatDto extends PartialType(CreateCatDto) {}
-// name?: string, age?: number 형태로 변환됨
-```
-
-### 2. PickType & OmitType (필드 선택/제외)
-
-```typescript
-// 이름만 선택
-export class UpdateCatNameDto extends PickType(CreateCatDto, ['name'] as const) {}
-
-// 나이만 제외
-export class CatProfileDto extends OmitType(CreateCatDto, ['age'] as const) {}
-```
-
-### 3. IntersectionType (DTO 결합)
-
-```typescript
-export class AdditionalInfo {
-  @IsString()
-  breed: string;
-}
-
-export class FullCatDto extends IntersectionType(CreateCatDto, AdditionalInfo) {}
-// name, age, breed 모두 포함
-```
-
----
-
-## Zod + NestJS 통합
-
-### drizzle-zod에서 생성한 스키마 활용
-
-```typescript
-// dto/stocks.dto.ts
 import { createZodDto } from 'nestjs-zod';
-import { insertStockSchema, selectStockSchema } from '@repo/schema';
+import { insertUserSchema } from '@repo/schema'; // Drizzle에서 자동 생성한 Zod 스키마
 
-// Zod 스키마 → NestJS DTO 클래스
-export class CreateStockDto extends createZodDto(
-  insertStockSchema.pick({
-    symbol: true,
-    name: true,
-    exchange: true,
-    sector: true,
-  })
-) {}
+// 1. Zod 스키마에서 필요한 속성만 쏙 빼온다 (.pick)
+const RegisterSchema = insertUserSchema.pick({
+  email: true,
+  password: true,
+  name: true,
+});
 
-export class UpdateStockDto extends createZodDto(
-  insertStockSchema
-    .pick({
-      name: true,
-      sector: true,
-      currentPrice: true,
-    })
-    .partial()  // 모든 필드 선택적
-) {}
+// 2. 알아서 완벽한 DTO 클래스로 둔갑!
+export class RegisterDto extends createZodDto(RegisterSchema) {}
 
-export class StockResponseDto extends createZodDto(
-) {}
+// ----- 컨트롤러 -----
+@Post('register')
+async register(@Body() dto: RegisterDto) {
+  // dto.email, dto.password, dto.name 자동 완성 지원!
+  // 무조건 검증된 안전한 데이터!
+  return this.authService.register(dto);
+}
 ```
 
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `createZodDto` | `nestjs-zod`가 제공하는 함수로, Zod 스키마를 NestJS DTO 클래스로 변환합니다. |
-| `insertStockSchema` | `drizzle-zod`를 통해 DB 테이블 정의에서 자동 생성된 삽입용 Zod 스키마입니다. |
-| `.pick({...})` | 전체 스키마에서 클라이언트로부터 입력받을 필드만 선택합니다. |
-| `.partial()` | 모든 필드를 선택적(Optional)으로 만듭니다. (수정용 DTO) |
-
-
-**장점:**
-- Drizzle 스키마에서 자동 생성 → 일관성 보장
-- Zod의 강력한 검증 기능 활용
-- TypeScript 타입 자동 추론
-
-### ZodValidationPipe 설정
-
-```typescript
-// main.ts
-import { ZodValidationPipe } from 'nestjs-zod';
-
-app.useGlobalPipes(new ZodValidationPipe());
-```
+**✅ Drizzle + Zod의 압도적인 장점:**
+DB 테이블 구조(Schema)를 바꾸면? Zod 스키마도 알아서 바뀌고, DTO 클래스도 알아서 바뀌어! 클라이언트부터 DB까지 **단일 진실 공급원(SSOT)** 이 완성되는 짜릿한 경험을 할 수 있어.
 
 ---
 
-## 중첩 객체와 배열 검증
+## 💼 베스트 프랙티스와 실무 팁 🟡
 
-### 중첩 객체
+### 1. 전역 `whitelist: true`는 목숨과도 같다.
+클라이언트 맘대로 `{ "email": "a@a.com", "role": "admin" }` 이렇게 `role` 필드를 강제로 쑤셔 넣으면 권한 탈취 버그가 터질 수 있어. 
+`whitelist: true`를 켜두면 DTO에 적혀 있지 않은 필드(role)는 문지기가 무참히 썰어버리고 안전한 데이터만 통과시켜줘.
+
+### 2. 중첩된 객체 배열 검증
+사용자가 "장바구니 배열"을 전송했다면, 각 배열 아이템도 일일이 검증해야 해.
+이때는 `@ValidateNested()`가 필수야.
 
 ```typescript
 import { ValidateNested, Type } from 'class-transformer';
 
-class AddressDto {
-  @IsString()
-  street: string;
-
-  @IsString()
-  city: string;
-
-  @IsString()
-  @Length(5, 5)
-  zipCode: string;
-}
-
-class UserDto {
-  @IsString()
-  name: string;
-
-  @ValidateNested()           // 중첩 객체 검증 활성화
-  @Type(() => AddressDto)     // 변환 타입 지정
-  address: AddressDto;
-}
-
-// 요청 예시:
-// { "name": "Kim", "address": { "street": "...", "city": "...", "zipCode": "12345" } }
-```
-
-### 배열 검증
-
-```typescript
-import { IsArray, ArrayMinSize, ArrayMaxSize, ValidateNested, Type } from 'class-validator';
-
-class OrderItemDto {
-  @IsString()
-  productId: string;
-
-  @IsInt()
-  @Min(1)
-  quantity: number;
-}
+class OrderItemDto { ... }
 
 class CreateOrderDto {
-  @IsArray()
-  @ArrayMinSize(1, { message: '최소 1개 상품이 필요합니다' })
-  @ArrayMaxSize(100, { message: '한 번에 100개까지만 주문 가능합니다' })
-  @ValidateNested({ each: true })  // 배열의 각 요소 검증
-  @Type(() => OrderItemDto)
+  // 1. 이거 배열인지 검사
+  @IsArray() 
+  // 2. 내부를 샅샅이 뒤져줄게!
+  @ValidateNested({ each: true }) 
+  // 3. 자바스크립트는 런타임에 배열 안의 타입을 모르니까 Type을 달아줘야 해!
+  @Type(() => OrderItemDto) 
   items: OrderItemDto[];
 }
 ```
 
 ---
 
-## 실전 예제: 주식 DTO
+## 💥 에러 해결 카탈로그
 
-```typescript
-// dto/create-stock.dto.ts
-import { 
-  IsString, 
-  IsNotEmpty, 
-  Length, 
-  IsIn, 
-  IsOptional,
-  IsNumber,
-  Min,
-  Matches,
-} from 'class-validator';
-import { Transform } from 'class-transformer';
+> 에러 메시지가 뜨면 Ctrl+F로 검색해봐.
 
-export class CreateStockDto {
-  @IsString()
-  @IsNotEmpty({ message: '심볼은 필수입니다' })
-  @Length(1, 10, { message: '심볼은 1~10자여야 합니다' })
-  @Matches(/^[A-Z]+$/, { message: '심볼은 대문자 영문만 가능합니다' })
-  @Transform(({ value }) => value?.toUpperCase())  // 자동 대문자 변환
-  symbol: string;
+### ❌ `Validation failed (numeric string is expected)`
 
-  @IsString()
-  @IsNotEmpty({ message: '종목명은 필수입니다' })
-  @Length(1, 100)
-  name: string;
-
-  @IsIn(['NASDAQ', 'NYSE', 'KRX', 'KOSDAQ'], {
-    message: '올바른 거래소를 선택해주세요',
-  })
-  exchange: string;
-
-  @IsOptional()
-  @IsString()
-  sector?: string;
-
-  @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 4 })
-  @Min(0)
-  currentPrice?: number;
-}
-
-// dto/stock-query.dto.ts
-export class StockQueryDto {
-  @IsOptional()
-  @IsIn(['NASDAQ', 'NYSE', 'KRX', 'KOSDAQ'])
-  exchange?: string;
-
-  @IsOptional()
-  @IsString()
-  sector?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Transform(({ value }) => parseInt(value) || 1)
-  page?: number = 1;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  @Transform(({ value }) => parseInt(value) || 20)
-  limit?: number = 20;
-}
+**현상:**
+```json
+{ "statusCode": 400, "message": "Validation failed (numeric string is expected)", "error": "Bad Request" }
 ```
 
-### 🔍 코드 분석
-| 코드 | 설명 |
-|------|------|
-| `@IsNotEmpty({ message: ... })` | 값이 비어있으면 안 됩니다. `message` 옵션으로 에러 메시지를 커스터마이징합니다. |
-| `@Matches(/^[A-Z]+$/)` | 정규표현식을 사용하여 대문자 영문만 허용합니다. |
-| `@Transform(...)` | `class-transformer` 데코레이터로, 검증 전에 값을 변환합니다. 여기선 소문자를 대문자로 자동 변환합니다. |
-| `@IsIn([...])` | 값이 주어진 배열 내의 항목 중 하나여야 합니다. (Enum 검증과 유사) |
-| `@Min(1)` | 숫자가 1 이상이어야 합니다. (페이지 번호 등) |
-| `@IsOptional()` | 값이 없어도 유효성 검사를 통과합니다. (검색 필터 등) |
+**원인:** 컨트롤러 파라미터에서 `ParseIntPipe`를 달아놨는데 클라이언트가 숫자가 아닌 글자(예: `?page=abc`)를 보냈기 때문.
 
+**해결책:** 
+내 코드가 잘못된 게 아니야. 방어에 성공한 거니까 프론트개발자에게 "숫자로 주세요~" 라고 말하면 돼.
+
+### ❌ `property 'nestedObject' should not exist` (whitelist 에러)
+
+**원인:** 
+전역 설정에 `whitelist: true`, `forbidNonWhitelisted: true`가 켜져 있는데, DTO 규칙에 명시되지 않은 이상한 속성을 클라이언트가 페이로드에 껴서 보냄.
+
+**해결책:** 
+필요한 데이터가 맞다면 DTO 클래스에 속성을 추가해. (만약 굳이 검사할 필요 없는 자유형식 데이터라면 `@IsOptional()` 이라도 달아줘야 해)
 
 ---
 
----
+## 🗂️ 치트시트 — 실무 요약 카드
 
-## 💡 실무 팁
-
-### 1. 에러 메시지 일관성
-
-```typescript
-// 커스텀 메시지 템플릿
-const messages = {
-  required: (field: string) => `${field}은(는) 필수입니다`,
-  minLength: (field: string, min: number) => 
-    `${field}은(는) ${min}자 이상이어야 합니다`,
-};
-
-class UserDto {
-  @IsNotEmpty({ message: messages.required('이메일') })
-  @IsEmail()
-  email: string;
-}
-```
-
-### 2. DTO 재사용
-
-```typescript
-// 기본 DTO
-class CreateUserDto {
-  @IsEmail()
-  email: string;
-
-  @IsString()
-  name: string;
-}
-
-// 상속으로 확장
-class AdminCreateUserDto extends CreateUserDto {
-  @IsIn(['user', 'admin', 'moderator'])
-  role: string;
-}
-
-// PartialType 활용 (업데이트용)
-import { PartialType } from '@nestjs/mapped-types';
-
-class UpdateUserDto extends PartialType(CreateUserDto) {}
-// 모든 필드가 선택적으로 됨
-```
-
-### 3. 보안을 위한 Whitelist
-`whitelist: true` 옵션은 보안의 핵심입니다.
-해커가 `admin: true` 같은 필드를 몰래 보내도, DTO에 정의되지 않았다면 자동으로 삭제되어 안전합니다.
-반드시 Global Pipe 설정에 포함시키세요.
+| 상황 | 데코레이터 / 설정 | 설명 |
+|------|-------------------|------|
+| **문자열의 길이를 제한하고 싶어요** | `@Length(2, 10)` | 최소 2, 최대 10자 |
+| **특정 문자열 셋 중 1개여야 해요** | `@IsIn(['USER', 'ADMIN'])` | Enum 느낌의 검증 |
+| **배열이 비어있으면 안 돼요** | `@ArrayMinSize(1)` | length가 최소 1 이상 |
+| **선택적 값이라 안 들어와도 돼요** | `@IsOptional()` | null, undefined 패스 |
+| **복잡한 객체/배열 내부를 검사할래요** | `@Type(() => Class) `<br/>`@ValidateNested()` | 이것들은 세트로 다녀야 작동함 |
 
 ---
 
-## 레퍼런스
+## 📝 마무리 퀴즈
 
-- [NestJS - Validation](https://docs.nestjs.com/techniques/validation)
-- [class-validator](https://github.com/typestack/class-validator)
-- [class-transformer](https://github.com/typestack/class-transformer)
-- [nestjs-zod](https://github.com/BenLorantfy/nestjs-zod)
+**Q1. `class-validator`를 이용할 때 아래 설정 중, 해커가 악의적인 잉여 필드(`isPaid: true` 등)를 JSON에 섞어 보내는 것을 막기 위해 반드시 켜야 하는 옵션은?**
 
-**다음 장**: [05. Drizzle 연동](./05-database-drizzle.md)
+```typescript
+app.useGlobalPipes(new ValidationPipe({
+  __________: true
+}));
+```
+
+- A) `transform`
+- B) `whitelist`
+- C) `disableErrorMessages`
+- D) `enableCors`
+
+> ✅ **정답: B**
+> **설명:** `whitelist: true`는 마치 화이트리스트(허가 명단) 기반 출입 통제와 같아. DTO에 이름이 안 적혀있는 데이터 필드는 조용히 폐기처분 해버려!
+
+**Q2. 문자열 형태의 쿼리스트링 `?limit=50` 을 숫자인 `50`으로 안전하게 형 변환하면서 덤으로 문자인지 아닌지 유효성 검사까지 공짜로 해주는 마법 같은 내장 파이프는 무엇인가?**
+
+> ✅ **정답:** `ParseIntPipe`
+> **📌 핵심 기억법:** 정수(Int)로 분석(Parse) 파이프!
+
+**Q3. 디버깅 퀴즈: 아래 코드에서 객체 배열 검증이 제대로 동작하지 않는 원인을 찾아봐.**
+
+```typescript
+import { IsArray, ValidateNested } from 'class-validator';
+class TaskDto { @IsString() title: string; }
+
+class CreateProjectDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  tasks: TaskDto[];
+}
+```
+테스트로 `tasks: [{ title: 12345 }]` 라고 숫자를 넣어서 보냈는데, 에러가 안 나고 통과해버린다?!
+
+> ✅ **정답:** `@Type(() => TaskDto)` 데코레이터를 빼먹었기 때문!
+> **설명:** TypeScript의 타입 정보는 컴파일 후 JS로 변하면 감쪽같이 사라져. 런타임에 도는 파이프 입장에선 저 `tasks` 배열 안의 원소가 `TaskDto` 객체가 맞는지 알 길이 없어. 무조건 명시적으로 `@Type` 데코레이터를 달아줘야 중첩 검증이 작동해!
+
+---
+
+## 🔗 더 알아보기
+- [NestJS - ValidationPipe (공식)](https://docs.nestjs.com/techniques/validation)
+- [class-validator 전체 규칙 목록](https://github.com/typestack/class-validator)
+- [05. Drizzle ORM 심화 가이드](./05-database-drizzle.mdx)

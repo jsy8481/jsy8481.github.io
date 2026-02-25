@@ -144,6 +144,11 @@
     font-size: inherit;
   }
 
+  /* Link styling (cleaner TOC) */
+  .prose a {
+    @apply no-underline hover:underline font-medium text-primary hover:text-primary/80 transition-colors;
+  }
+
   /* Heading sizes */
   .prose h2 {
     @apply text-xl font-bold;

@@ -3,6 +3,7 @@ import path from 'path';
 import matter from 'gray-matter';
 import { compileMDX } from 'next-mdx-remote/rsc';
 import rehypePrettyCode from 'rehype-pretty-code';
+import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
 
 const contentDir = path.join(process.cwd(), 'content');
@@ -43,7 +44,10 @@ export async function getGuideBySlug(category: string, slug: string): Promise<Gu
             parseFrontmatter: true,
             mdxOptions: {
                 remarkPlugins: [remarkGfm],
-                rehypePlugins: [[rehypePrettyCode, prettyCodeOptions]],
+                rehypePlugins: [
+                    rehypeSlug,
+                    [rehypePrettyCode, prettyCodeOptions]
+                ],
             },
         },
     });

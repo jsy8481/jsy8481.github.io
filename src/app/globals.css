@@ -149,7 +149,16 @@
     @apply no-underline hover:underline font-medium text-primary hover:text-primary/80 transition-colors;
   }
 
-  /* Heading sizes */
+  /* Heading sizes & scroll adjustment for fixed header */
+  .prose h1,
+  .prose h2,
+  .prose h3,
+  .prose h4,
+  .prose h5,
+  .prose h6 {
+    @apply scroll-mt-28;
+  }
+
   .prose h2 {
     @apply text-xl font-bold;
   }
